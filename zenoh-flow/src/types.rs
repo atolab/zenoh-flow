@@ -112,6 +112,21 @@ impl From<libloading::Error> for ZFError {
     }
 }
 
+#[cfg(feature = "data_json")]
+impl From<serde_json::Error> for ZFError {
+    fn from(_err: serde_json::Error) -> Self {
+        Self::SerializationError
+    }
+}
+
+#[cfg(feature = "data_json")]
+impl From<std::str::Utf8Error> for ZFError {
+    fn from(_err: std::str::Utf8Error) -> Self {
+        Self::SerializationError
+    }
+}
+
+
 pub struct ZFInnerCtx {
     pub state: Box<dyn StateTrait>,
     pub mode: usize, //can be arc<atomic> and inside ZFContext
