@@ -43,7 +43,6 @@ use crate::{
 };
 use uuid::Uuid;
 
-#[derive(Clone)]
 pub struct DataFlowGraph {
     pub uuid: Uuid,
     pub flow: String,
@@ -71,6 +70,7 @@ impl DataFlowGraph {
         }
     }
 
+    //This should be a TryFrom
     pub fn from_dataflow_record(dr: DataFlowRecord) -> ZFResult<Self> {
         let mut graph = StableGraph::<DataFlowNode, (String, String)>::new();
         let mut operators = Vec::new();
