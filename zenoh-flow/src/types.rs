@@ -32,7 +32,7 @@ pub type ZFTimestamp = usize; //TODO: improve it, usize is just a placeholder
 pub type ZFPortID = String;
 pub type ZFRuntimeID = String;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum ZFError {
     GenericError,
     SerializationError,
@@ -48,7 +48,7 @@ pub enum ZFError {
     PortTypeNotMatching((String, String)),
     OperatorNotFound(ZFOperatorId),
     PortNotFound((ZFOperatorId, String)),
-    RecvError(flume::RecvError),
+    RecvError(String),
     SendError(String),
     MissingInput(String),
     MissingOutput(String),
@@ -63,7 +63,7 @@ pub enum ZFError {
 
 impl From<flume::RecvError> for ZFError {
     fn from(err: flume::RecvError) -> Self {
-        Self::RecvError(err)
+        Self::RecvError(format!("{:?}", err))
     }
 }
 
@@ -125,7 +125,6 @@ impl From<std::str::Utf8Error> for ZFError {
         Self::SerializationError
     }
 }
-
 
 pub struct ZFInnerCtx {
     pub state: Box<dyn StateTrait>,
