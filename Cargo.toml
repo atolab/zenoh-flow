@@ -20,6 +20,7 @@ members = [
   "zenoh-flow-daemon",
   "zenoh-flow-ctl",
   "zenoh-flow-registry",
+  "zenoh-flow-registry-plugin",
   "cargo-zenoh-flow",
 ]
 

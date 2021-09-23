@@ -218,6 +218,9 @@ async fn main() {
                     };
 
                     let metadata_tag = RegistryComponentTag {
+                        #[cfg(feature = "local_registry")]
+                        name: version_tag.clone(),
+                        #[cfg(not(feature = "local_registry"))]
                         name: version_tag,
                         requirement_labels: vec![],
                         architectures: vec![metadata_arch.clone()],
@@ -287,6 +290,9 @@ async fn main() {
                     };
 
                     let metadata_tag = RegistryComponentTag {
+                        #[cfg(feature = "local_registry")]
+                        name: version_tag.clone(),
+                        #[cfg(not(feature = "local_registry"))]
                         name: version_tag,
                         requirement_labels: vec![],
                         architectures: vec![metadata_arch.clone()],
@@ -355,6 +361,9 @@ async fn main() {
                     };
 
                     let metadata_tag = RegistryComponentTag {
+                        #[cfg(feature = "local_registry")]
+                        name: version_tag.clone(),
+                        #[cfg(not(feature = "local_registry"))]
                         name: version_tag,
                         requirement_labels: vec![],
                         architectures: vec![metadata_arch.clone()],
@@ -448,7 +457,7 @@ async fn main() {
                     .send_component(
                         &std::path::PathBuf::from(target),
                         &component_info.id,
-                        &metadata_arch,
+                        &_metadata_arch,
                         &version_tag,
                     )
                     .await

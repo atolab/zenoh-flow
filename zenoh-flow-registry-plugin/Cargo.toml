@@ -1,5 +1,5 @@
 [package]
-name = "zenoh-flow-registry"
+name = "zenoh-flow-registry-plugin"
 version = "0.1.0"
 repository = "https://github.com/eclipse-zenoh/zenoh-flow"
 homepage = "http://zenoh.io"
@@ -12,36 +12,24 @@ categories = ["network-programming"]
 description = "Zenoh-Flow: zenoh-based data-flow programming framework for computations that span from the cloud to the device."
 readme = "README.md"
 
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+
 async-std = { version = "=1.9.0", features = ["attributes"] }
 zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master"}
 zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master" }
-zrpc = { git = "https://github.com/atolab/zenoh-rpc.git", branch = "master" }
-znrpc-macros = { git = "https://github.com/atolab/zenoh-rpc.git", branch = "master" }
-zenoh-cdn = { git = "https://github.com/atolab/zenoh-cdn", branch = "master" }
-zenoh-flow = {path = "../zenoh-flow"}
+zenoh-plugin-trait = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master" }
+clap = "2"
+env_logger = "0.9"
+futures = "0.3"
 log = "0.4"
-env_logger = "0.9.0"
-structopt = "0.3.13"
-clap = "2.33"
-git-version = "0.3.4"
-futures = "0.3.15"
-uuid = { version = "0.8", features = ["serde", "v4"] }
-base64 = "0.13.0"
-serde_derive = "1.0.55"
-serde = { version = "1.0.55", features = ["derive"] }
-serde_json = "1.0.66"
-serde_yaml = "0.8"
-async-ctrlc ={version = "1.2.0", features = ["stream"]}
-rand = "0.8.3"
+flume = "0.10"
 
-[[bin]]
-name = "zenoh-flow-registry"
-path = "src/bin/registry.rs"
-
+zenoh-flow = {path = "../zenoh-flow"}
+zenoh-flow-registry = {path = "../zenoh-flow-registry"}
 
 [lib]
-path = "src/lib.rs"
+name = "zplugin_zenoh_flow_registry"
+crate-type = ["cdylib"]
