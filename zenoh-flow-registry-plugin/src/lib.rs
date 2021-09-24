@@ -17,11 +17,13 @@
 use async_std::fs;
 use async_std::path::Path;
 use async_std::sync::Arc;
+use async_std::task::JoinHandle;
 use clap::{Arg, ArgMatches};
 use flume::{bounded, Receiver, Sender};
 use std::convert::TryFrom;
 use zenoh::net::runtime::Runtime;
 use zenoh::net::Session;
+use zenoh::ZResult;
 use zenoh_flow_registry::registry::{RegistryConfig, ZFRegistry};
 use zenoh_plugin_trait::prelude::*;
 use zenoh_util::core::{ZError, ZErrorKind};
@@ -33,6 +35,7 @@ zenoh_plugin_trait::declare_plugin!(ExamplePlugin);
 
 pub struct RegistryPluginStopper {
     sender: Arc<Sender<()>>,
+    _handle: JoinHandle<ZResult<()>>,
 }
 
 impl PluginStopper for RegistryPluginStopper {
@@ -62,11 +65,13 @@ impl Plugin for ExamplePlugin {
     ) -> Result<Box<dyn std::any::Any + Send + Sync>, Box<dyn std::error::Error>> {
         if let Some(config) = args.value_of("registry-config") {
             let (s, r) = bounded::<()>(1);
+            let _handle = async_std::task::spawn(run(runtime.clone(), config.into(), r));
+
             let stopper = RegistryPluginStopper {
                 sender: Arc::new(s),
+                _handle,
             };
 
-            async_std::task::spawn(run(runtime.clone(), config.into(), r));
             Ok(Box::new(stopper))
         } else {
             Err(Box::new(zerror2!(ZErrorKind::Other {
@@ -80,7 +85,7 @@ async fn read_file(path: &Path) -> String {
     fs::read_to_string(path).await.unwrap()
 }
 
-async fn run(runtime: Runtime, config: String, stopper: Receiver<()>) {
+async fn run(runtime: Runtime, config: String, stopper: Receiver<()>) -> ZResult<()> {
     env_logger::init();
 
     // This is not used because we need both a Session and a Zenoh for the registry.
@@ -89,7 +94,7 @@ async fn run(runtime: Runtime, config: String, stopper: Receiver<()>) {
 
     let conf_file_path = Path::new(&config);
 
-    let conf = RegistryConfig::try_from(read_file(conf_file_path).await).unwrap();
+    let conf = RegistryConfig::try_from(read_file(conf_file_path).await)?;
 
     log::debug!(
         "Run Zenoh Flow registry plugin with config path={:?}",
@@ -97,13 +102,19 @@ async fn run(runtime: Runtime, config: String, stopper: Receiver<()>) {
     );
 
     // The registry will create its own zenoh::net and zenoh sessions.
-    let registry = ZFRegistry::try_from(conf).unwrap();
+    let registry = ZFRegistry::try_from(conf)?;
 
-    let (s, h) = registry.start().await.unwrap();
+    let (s, h) = registry.start().await?;
 
     // Waiting to be stopped by zenohd
-    let _ = stopper.recv_async().await.unwrap();
+    let _ = stopper.recv_async().await.map_err(|e| {
+        zerror2!(ZErrorKind::Other {
+            descr: format!("Error when receiving from stopper receiver {:?}", e)
+        })
+    })?;
 
-    registry.stop(s).await.unwrap();
-    h.await.unwrap();
+    registry.stop(s).await?;
+    h.await?;
+
+    Ok(())
 }

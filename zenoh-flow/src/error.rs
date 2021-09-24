@@ -15,6 +15,8 @@ use crate::serde::{Deserialize, Serialize};
 use crate::OperatorId;
 use std::convert::From;
 use uuid::Uuid;
+use zenoh::{ZError, ZErrorKind};
+use zenoh_util::zerror2;
 use zrpc::zrpcresult::ZRPCError;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
@@ -128,5 +130,13 @@ impl From<std::str::Utf8Error> for ZFError {
 impl std::fmt::Display for ZFError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl From<ZFError> for ZError {
+    fn from(err: ZFError) -> Self {
+        zerror2!(ZErrorKind::Other {
+            descr: format!("Error coming from Zenoh Flow {:?}", err)
+        })
     }
 }
