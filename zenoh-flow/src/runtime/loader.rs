@@ -30,6 +30,9 @@ use url::Url;
 pub static CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub static RUSTC_VERSION: &str = env!("RUSTC_VERSION");
 
+// Make the loader structure,
+// that contains the RegistryClient and maybe other stuffs.
+
 // OPERATOR
 
 /// # Safety
