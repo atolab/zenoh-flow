@@ -34,3 +34,5 @@ pub use macros::*;
 
 pub mod error;
 pub use error::*;
+
+pub mod registry;

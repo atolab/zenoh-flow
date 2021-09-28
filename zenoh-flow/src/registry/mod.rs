@@ -11,9 +11,31 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
+#![allow(clippy::manual_async_fn)]
 
-use crate::Registry;
-use std::convert::TryFrom;
+use crate::async_std::sync::{Arc, Mutex};
+use crate::model::RegistryComponentArchitecture;
+use crate::OperatorId;
+use crate::{
+    model::{
+        component::{OperatorDescriptor, SinkDescriptor, SourceDescriptor},
+        dataflow::DataFlowDescriptor,
+        RegistryComponent,
+    },
+    ZFResult, ZFError
+};
+use std::path::Path;
+use uuid::Uuid;
+use zenoh::Path as ZPath;
+use zenoh_cdn::client::Client;
+use znrpc_macros::{znservice, znserver};
+use zrpc::zrpcresult::{ZRPCError, ZRPCResult};
+use zrpc::ZNServe;
+
+use zenoh_cdn::server::Server;
+use zenoh_cdn::types::ServerConfig;
+
+
 
 use futures::prelude::*;
 use futures::select;
@@ -21,25 +43,112 @@ use futures::select;
 use zenoh::net::Session as ZSession;
 use zenoh::ZFuture;
 
-use zenoh_flow::async_std::sync::{Arc, Mutex};
-use zenoh_flow::model::dataflow::DataFlowDescriptor;
-use zenoh_flow::OperatorId;
+use crate::runtime::resources::DataStore;
+use crate::runtime::ZenohConfig;
+use crate::serde::{Deserialize, Serialize};
 
-use zenoh_flow::model::{
-    component::{OperatorDescriptor, SinkDescriptor, SourceDescriptor},
-    RegistryComponent,
-};
 
-use zenoh_flow::runtime::resources::DataStore;
-use zenoh_flow::runtime::ZenohConfig;
-use zenoh_flow::serde::{Deserialize, Serialize};
-use zenoh_flow::types::{ZFError, ZFResult};
 
-use zenoh_cdn::server::Server;
-use zenoh_cdn::types::ServerConfig;
 
-use znrpc_macros::znserver;
-use zrpc::ZNServe;
+#[znservice(
+    timeout_s = 60,
+    prefix = "/zf/registry",
+    service_uuid = "00000000-0000-0000-0000-000000000002"
+)]
+pub trait Registry {
+    async fn get_flow(&self, flow_id: OperatorId) -> ZFResult<DataFlowDescriptor>;
+
+    //async fn get_graph(&self, graph_id: String) -> ZFResult<GraphDescriptor>;
+
+    async fn get_all_graphs(&self) -> ZFResult<Vec<RegistryComponent>>;
+
+    async fn get_operator(
+        &self,
+        operator_id: OperatorId,
+        tag: Option<String>,
+        os: String,
+        arch: String,
+    ) -> ZFResult<OperatorDescriptor>;
+
+    async fn get_sink(&self, sink_id: OperatorId, tag: Option<String>) -> ZFResult<SinkDescriptor>;
+
+    async fn get_source(
+        &self,
+        source_id: OperatorId,
+        tag: Option<String>,
+    ) -> ZFResult<SourceDescriptor>;
+
+    async fn remove_flow(&self, flow_id: OperatorId) -> ZFResult<DataFlowDescriptor>;
+
+    // async fn remove_graph(&self, graph_id: String) -> ZFResult<GraphDescriptor>;
+
+    async fn remove_operator(
+        &self,
+        operator_id: OperatorId,
+        tag: Option<String>,
+    ) -> ZFResult<OperatorDescriptor>;
+
+    async fn remove_sink(
+        &self,
+        sink_id: OperatorId,
+        tag: Option<String>,
+    ) -> ZFResult<SinkDescriptor>;
+
+    async fn remove_source(
+        &self,
+        source_id: OperatorId,
+        tag: Option<String>,
+    ) -> ZFResult<SourceDescriptor>;
+
+    async fn add_flow(&self, flow: DataFlowDescriptor) -> ZFResult<OperatorId>;
+
+    async fn add_graph(&self, graph: RegistryComponent) -> ZFResult<OperatorId>;
+
+    async fn add_operator(
+        &self,
+        operator: RegistryComponent,
+        tag: Option<String>,
+    ) -> ZFResult<OperatorId>;
+
+    async fn add_sink(&self, sink: RegistryComponent, tag: Option<String>) -> ZFResult<OperatorId>;
+
+    async fn add_source(
+        &self,
+        source: RegistryComponent,
+        tag: Option<String>,
+    ) -> ZFResult<OperatorId>;
+}
+
+#[derive(Clone)]
+pub struct RegistryFileClient {
+    pub zcdn: Client,
+}
+
+impl RegistryFileClient {
+    pub async fn send_component(
+        &self,
+        path: &Path,
+        id: &str,
+        arch: &RegistryComponentArchitecture,
+        tag: &str,
+    ) -> ZFResult<()> {
+        let resource_name =
+            ZPath::try_from(format!("/{}/{}/{}/{}/library", id, tag, arch.os, arch.arch))?;
+        Ok(self.zcdn.upload(path, &resource_name).await?)
+    }
+
+    pub async fn get_component(_component_id: String, _path: &Path) -> ZFResult<()> {
+        Ok(())
+    }
+}
+
+impl From<Arc<zenoh::Zenoh>> for RegistryFileClient {
+    fn from(zenoh: Arc<zenoh::Zenoh>) -> Self {
+        let zcdn = Client::new(zenoh);
+        Self { zcdn }
+    }
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegistryConfig {

@@ -24,7 +24,7 @@ use std::convert::TryFrom;
 use zenoh::net::runtime::Runtime;
 use zenoh::net::Session;
 use zenoh::ZResult;
-use zenoh_flow_registry::registry::{RegistryConfig, ZFRegistry};
+use zenoh_flow::registry::{RegistryConfig, ZFRegistry};
 use zenoh_plugin_trait::prelude::*;
 use zenoh_util::core::{ZError, ZErrorKind};
 use zenoh_util::zerror2;

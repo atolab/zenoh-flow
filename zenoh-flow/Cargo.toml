@@ -15,6 +15,13 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-std = { version = "=1.9.0", features = ["attributes"] }
+zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master"}
+zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master" }
+zrpc = { git = "https://github.com/atolab/zenoh-rpc.git", branch = "master" }
+znrpc-macros = { git = "https://github.com/atolab/zenoh-rpc.git", branch = "master" }
+zenoh-cdn = { git = "https://github.com/atolab/zenoh-cdn", branch = "master" }
+async-trait = "0.1.50"
 env_logger = "0.9"
 serde_derive = "1.0.55"
 serde = { version = "1.0.55", features = ["derive", "rc"] }
@@ -28,16 +35,10 @@ structopt = "0.3.21"
 libloading = "0.7.0"
 zenoh-flow-derive = {path = "../zenoh-flow-derive"}
 log = "0.4"
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master"}
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "master" }
-zrpc = { git = "https://github.com/atolab/zenoh-rpc.git", branch = "master" }
-znrpc-macros = { git = "https://github.com/atolab/zenoh-rpc.git", branch = "master" }
 url = "2.2.2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 uhlc = { git = "https://github.com/atolab/uhlc-rs.git", branch = "master" }
 futures = "0.3.15"
-async-std = { version = "=1.9.0", features = ["attributes"] }
-async-trait = "0.1.50"
 event-listener = "2.5.1"
 paste = "1.0"
 flume = "0.10"
@@ -45,12 +46,17 @@ typetag = "0.1"
 base64 = "0.13.0"
 pin-project-lite = "0.2.4"
 futures-lite = "1.11.3"
+async-ctrlc ={version = "1.2.0", features = ["stream"]}
+git-version = "0.3.4"
 
 [build-dependencies]
 rustc_version = "0.4.0"
 
 [[bin]]
 name = "runtime"
+
+[[bin]]
+name = "registry"
 
 
 [features]

@@ -29,9 +29,9 @@ use rand::seq::SliceRandom;
 #[cfg(feature = "local_registry")]
 use zenoh::*;
 #[cfg(feature = "local_registry")]
-use zenoh_flow_registry::RegistryClient;
+use zenoh_flow::registry::RegistryClient;
 #[cfg(feature = "local_registry")]
-use zenoh_flow_registry::RegistryFileClient;
+use zenoh_flow::registry::RegistryFileClient;
 
 #[derive(StructOpt, Debug)]
 pub enum ZFCtl {
