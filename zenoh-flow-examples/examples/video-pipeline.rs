@@ -28,6 +28,7 @@ use zenoh_flow::{
     Sink, Source, ZFError,
 };
 use zenoh_flow::{State, ZFResult};
+use zenoh_flow::runtime::loader::ComponentLoader;
 
 static SOURCE: &str = "Frame";
 static INPUT: &str = "Frame";
@@ -220,7 +221,13 @@ impl Sink for VideoSink {
 async fn main() {
     env_logger::init();
 
-    let mut zf_graph = zenoh_flow::runtime::graph::DataFlowGraph::new();
+    let znsession = Arc::new(zenoh::net::open(zenoh::net::config::peer()).await.unwrap());
+    let zsession = Arc::new(zenoh::Zenoh::new(zenoh::Properties::from(String::from("mode=peer")).into()).await.unwrap());
+
+    let loader = Arc::new(ComponentLoader::from_zenoh_session(znsession.clone(), zsession.clone()).await.unwrap());
+
+
+    let mut zf_graph = zenoh_flow::runtime::graph::DataFlowGraph::new(loader);
 
     let source = Arc::new(CameraSource);
     let sink = Arc::new(VideoSink);

@@ -18,6 +18,8 @@ use std::fs::{File, *};
 use std::io::Write;
 use std::path::Path;
 use structopt::StructOpt;
+use zenoh_flow::runtime::loader::ComponentLoader;
+use zenoh_flow::async_std::sync::Arc;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "dpn")]
@@ -40,6 +42,11 @@ fn _write_record_to_file(record: zenoh_flow::model::dataflow::DataFlowRecord, fi
 async fn main() {
     env_logger::init();
 
+    let znsession = Arc::new(zenoh::net::open(zenoh::net::config::peer()).await.unwrap());
+    let zsession = Arc::new(zenoh::Zenoh::new(zenoh::Properties::from(String::from("mode=peer")).into()).await.unwrap());
+
+    let loader = Arc::new(ComponentLoader::from_zenoh_session(znsession.clone(), zsession.clone()).await.unwrap());
+
     let opt = Opt::from_args();
     let yaml_df = read_to_string(opt.graph_file).unwrap();
 
@@ -58,7 +65,7 @@ async fn main() {
     _write_record_to_file(dfr.clone(), "computed-record.yaml");
 
     // creating graph
-    let mut dataflow_graph = zenoh_flow::runtime::graph::DataFlowGraph::try_from(dfr).unwrap();
+    let mut dataflow_graph = zenoh_flow::runtime::graph::DataFlowGraph::try_from((dfr, loader)).unwrap();
 
     let dot_notation = dataflow_graph.to_dot_notation();
 
@@ -67,7 +74,7 @@ async fn main() {
     file.sync_all().unwrap();
 
     // instantiating
-    dataflow_graph.load(&opt.runtime).unwrap();
+    dataflow_graph.load(&opt.runtime, znsession).await.unwrap();
 
     dataflow_graph.make_connections(&opt.runtime).await.unwrap();
 

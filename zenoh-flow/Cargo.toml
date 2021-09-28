@@ -48,6 +48,7 @@ pin-project-lite = "0.2.4"
 futures-lite = "1.11.3"
 async-ctrlc ={version = "1.2.0", features = ["stream"]}
 git-version = "0.3.4"
+rand = { version = "0.8"}
 
 [build-dependencies]
 rustc_version = "0.4.0"

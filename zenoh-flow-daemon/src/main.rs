@@ -70,7 +70,7 @@ async fn main() {
     let conf_file_path = Path::new(&args.config);
     let config = serde_yaml::from_str::<RuntimeConfig>(&(read_file(conf_file_path).await)).unwrap();
 
-    let rt = Daemon::from_config(config).unwrap();
+    let rt = Daemon::from_config(config).await.unwrap();
 
     let (s, h) = rt.start().await.unwrap();
 

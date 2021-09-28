@@ -25,6 +25,7 @@ use zenoh_flow::runtime::message::ControlMessage;
 use zenoh_flow::runtime::resources::DataStore;
 use zenoh_flow::runtime::runners::{RunnerKind, RunnerManager};
 use zenoh_flow::runtime::RuntimeClient;
+use zenoh_flow::runtime::loader::ComponentLoader;
 use zenoh_flow::runtime::{Runtime, RuntimeConfig, RuntimeInfo, RuntimeStatus, RuntimeStatusKind};
 use zenoh_flow::types::{ZFError, ZFResult};
 
@@ -44,31 +45,35 @@ pub struct Daemon {
     pub state: Arc<Mutex<RTState>>,
     pub runtime_uuid: Uuid,
     pub runtime_name: Arc<str>,
+    pub loader: Arc<ComponentLoader>,
 }
 
 impl Daemon {
-    pub fn new(
+    pub async fn make_daemon (
         zn: Arc<ZSession>,
         z: Arc<zenoh::Zenoh>,
         runtime_uuid: Uuid,
         runtime_name: String,
         config: RuntimeConfig,
-    ) -> Self {
+    ) -> ZFResult<Self> {
         let state = Arc::new(Mutex::new(RTState {
             graphs: HashMap::new(),
             config,
         }));
 
-        Self {
-            zn,
-            store: DataStore::new(z),
+        let loader = Arc::new(ComponentLoader::from_zenoh_session(zn.clone(), z.clone()).await?);
+
+        Ok(Self {
+            zn: zn.clone(),
+            store: DataStore::new(z.clone()),
             runtime_uuid,
             runtime_name: runtime_name.into(),
             state,
-        }
+            loader,
+        })
     }
 
-    pub fn from_config(config: RuntimeConfig) -> ZFResult<Self> {
+    pub async fn from_config(config: RuntimeConfig) -> ZFResult<Self> {
         let uuid = match &config.uuid {
             Some(u) => *u,
             None => get_machine_uuid()?,
@@ -96,7 +101,7 @@ impl Daemon {
         let zn = Arc::new(zenoh::net::open(zn_properties.into()).wait()?);
         let z = Arc::new(zenoh::Zenoh::new(zenoh_properties.into()).wait()?);
 
-        Ok(Self::new(zn, z, uuid, name, config))
+        Self::make_daemon(zn, z, uuid, name, config).await
     }
 
     pub async fn run(&self, stop: async_std::channel::Receiver<()>) -> ZFResult<()> {
@@ -352,9 +357,9 @@ impl Runtime for Daemon {
 
         let mut dfr = DataFlowRecord::try_from((flow, record_id))?;
 
-        let mut dataflow_graph = DataFlowGraph::try_from(dfr.clone())?;
+        let mut dataflow_graph = DataFlowGraph::try_from((dfr.clone(), self.loader.clone()))?;
 
-        dataflow_graph.load(&self.runtime_name)?;
+        dataflow_graph.load(&self.runtime_name, self.zn.clone()).await?;
 
         dataflow_graph.make_connections(&self.runtime_name).await?;
 

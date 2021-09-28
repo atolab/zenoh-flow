@@ -26,30 +26,76 @@ use async_std::sync::Arc;
 use libloading::Library;
 use uhlc::HLC;
 use url::Url;
+use rand::seq::SliceRandom;
+use crate::registry::RegistryClient;
+use crate::registry::RegistryFileClient;
+
 
 pub static CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub static RUSTC_VERSION: &str = env!("RUSTC_VERSION");
 
-// Make the loader structure,
-// that contains the RegistryClient and maybe other stuffs.
+pub struct ComponentLoader {
+    pub registry_client: Option<RegistryClient>,
+    pub file_client : RegistryFileClient,
+}
 
-// OPERATOR
 
-/// # Safety
-///
-/// TODO remove all copy-pasted code, make macros/functions instead
-pub fn load_operator(
-    record: OperatorRecord,
-    hlc: Arc<HLC>,
-    path: String,
-) -> ZFResult<OperatorRunner> {
-    let uri = Url::parse(&path).map_err(|err| ZFError::ParsingError(format!("{}", err)))?;
+impl ComponentLoader {
+    pub async fn from_zenoh_session (zn: Arc<zenoh::net::Session>, z: Arc<zenoh::Zenoh>) -> ZFResult<Self> {
+        let servers = RegistryClient::find_servers(zn.clone()).await?;
+        let registry_client = match servers.choose(&mut rand::thread_rng()) {
+            Some(entry_point) => {
+                log::debug!("Selected entrypoint runtime: {:?}", entry_point);
+                let client = RegistryClient::new(zn, *entry_point);
+                Some(client)
+            }
+            None => {
+                // Err(ZFError::Disconnected)
+                None
+            }
+        };
 
-    match uri.scheme() {
-        "file" => unsafe { load_lib_operator(record, hlc, make_file_path(uri)) },
-        _ => Err(ZFError::Unimplemented),
+        let file_client = RegistryFileClient::from(z);
+
+        Ok(Self{
+            registry_client,
+            file_client
+        })
+    }
+
+
+    pub async fn load_operator(&self, record: OperatorRecord, hlc: Arc<HLC>, path: String) -> ZFResult<OperatorRunner> {
+        let uri = Url::parse(&path).map_err(|err| ZFError::ParsingError(format!("{}", err)))?;
+
+        match uri.scheme() {
+            "file" => unsafe { load_lib_operator(record, hlc, make_file_path(uri)) },
+            "zfregistry" => Err(ZFError::Unimplemented),
+            _ => Err(ZFError::Unimplemented),
+        }
+    }
+
+
+    pub async fn load_source(&self,record: SourceRecord, hlc: PeriodicHLC, path: String) -> ZFResult<SourceRunner> {
+        let uri = Url::parse(&path).map_err(|err| ZFError::ParsingError(format!("{}", err)))?;
+
+        match uri.scheme() {
+            "file" => unsafe { load_lib_source(record, hlc, make_file_path(uri)) },
+            "zfregistry" => Err(ZFError::Unimplemented),
+            _ => Err(ZFError::Unimplemented),
+        }
+    }
+
+    pub async fn load_sink(&self, record: SinkRecord, path: String) -> ZFResult<SinkRunner> {
+        let uri = Url::parse(&path).map_err(|err| ZFError::ParsingError(format!("{}", err)))?;
+
+        match uri.scheme() {
+            "file" => unsafe { load_lib_sink(record, make_file_path(uri)) },
+            "zfregistry" => Err(ZFError::Unimplemented),
+            _ => Err(ZFError::Unimplemented),
+        }
     }
 }
+
 
 /// Load the library of the operator.
 ///
@@ -81,17 +127,6 @@ pub unsafe fn load_lib_operator(
     Ok(runner)
 }
 
-// SOURCE
-
-pub fn load_source(record: SourceRecord, hlc: PeriodicHLC, path: String) -> ZFResult<SourceRunner> {
-    let uri = Url::parse(&path).map_err(|err| ZFError::ParsingError(format!("{}", err)))?;
-
-    match uri.scheme() {
-        "file" => unsafe { load_lib_source(record, hlc, make_file_path(uri)) },
-        _ => Err(ZFError::Unimplemented),
-    }
-}
-
 /// Load the library of a source.
 ///
 /// # Safety
@@ -119,17 +154,6 @@ pub unsafe fn load_lib_source(
 
     let runner = SourceRunner::new(record, hlc, source, Some(library));
     Ok(runner)
-}
-
-// SINK
-
-pub fn load_sink(record: SinkRecord, path: String) -> ZFResult<SinkRunner> {
-    let uri = Url::parse(&path).map_err(|err| ZFError::ParsingError(format!("{}", err)))?;
-
-    match uri.scheme() {
-        "file" => unsafe { load_lib_sink(record, make_file_path(uri)) },
-        _ => Err(ZFError::Unimplemented),
-    }
 }
 
 /// Load the library of a sink.

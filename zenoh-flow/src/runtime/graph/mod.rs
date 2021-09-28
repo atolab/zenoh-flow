@@ -25,9 +25,9 @@ use petgraph::Direction;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use uhlc::HLC;
-use zenoh::ZFuture;
 
-use crate::runtime::loader::{load_operator, load_sink, load_source};
+
+use crate::runtime::loader::{ComponentLoader};
 use crate::runtime::message::Message;
 use crate::runtime::runners::connector::{ZenohReceiver, ZenohSender};
 use crate::runtime::runners::{
@@ -52,16 +52,11 @@ pub struct DataFlowGraph {
     pub links: Vec<(EdgeIndex, LinkDescriptor)>,
     pub graph: StableGraph<DataFlowNode, (String, String)>,
     pub operators_runners: HashMap<OperatorId, (Runner, DataFlowNodeKind)>,
-}
-
-impl Default for DataFlowGraph {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub loader : Arc<ComponentLoader>
 }
 
 impl DataFlowGraph {
-    pub fn new() -> Self {
+    pub fn new(loader: Arc<ComponentLoader>) -> Self {
         Self {
             uuid: Uuid::nil(),
             flow: "".to_string(),
@@ -69,6 +64,7 @@ impl DataFlowGraph {
             links: Vec::new(),
             graph: StableGraph::<DataFlowNode, (String, String)>::new(),
             operators_runners: HashMap::new(),
+            loader,
         }
     }
 
@@ -229,8 +225,8 @@ impl DataFlowGraph {
         )))
     }
 
-    pub fn load(&mut self, runtime: &str) -> ZFResult<()> {
-        let session = Arc::new(zenoh::net::open(zenoh::net::config::peer()).wait()?);
+    pub async fn load(&mut self, runtime: &str, session: Arc<zenoh::net::Session>) -> ZFResult<()> {
+
         let hlc = Arc::new(uhlc::HLC::default());
 
         for (_, op) in &self.operators {
@@ -242,7 +238,7 @@ impl DataFlowGraph {
                 DataFlowNode::Operator(inner) => {
                     match &inner.uri {
                         Some(uri) => {
-                            let runner = load_operator(inner.clone(), hlc.clone(), uri.clone())?;
+                            let runner = self.loader.load_operator(inner.clone(), hlc.clone(), uri.clone()).await?;
                             let runner = Runner::Operator(runner);
                             self.operators_runners
                                 .insert(inner.id.clone(), (runner, DataFlowNodeKind::Operator));
@@ -255,11 +251,11 @@ impl DataFlowGraph {
                 DataFlowNode::Source(inner) => {
                     match &inner.uri {
                         Some(uri) => {
-                            let runner = load_source(
+                            let runner = self.loader.load_source(
                                 inner.clone(),
                                 PeriodicHLC::new(hlc.clone(), inner.period.clone()),
                                 uri.clone(),
-                            )?;
+                            ).await?;
                             let runner = Runner::Source(runner);
                             self.operators_runners
                                 .insert(inner.id.clone(), (runner, DataFlowNodeKind::Source));
@@ -272,7 +268,7 @@ impl DataFlowGraph {
                 DataFlowNode::Sink(inner) => {
                     match &inner.uri {
                         Some(uri) => {
-                            let runner = load_sink(inner.clone(), uri.clone())?;
+                            let runner = self.loader.load_sink(inner.clone(), uri.clone()).await?;
                             let runner = Runner::Sink(runner);
                             self.operators_runners
                                 .insert(inner.id.clone(), (runner, DataFlowNodeKind::Sink));
@@ -425,10 +421,11 @@ impl DataFlowGraph {
     }
 }
 
-impl TryFrom<DataFlowRecord> for DataFlowGraph {
+impl TryFrom<(DataFlowRecord, Arc<ComponentLoader>)> for DataFlowGraph {
     type Error = ZFError;
 
-    fn try_from(dr: DataFlowRecord) -> Result<Self, Self::Error> {
+    fn try_from(dr: (DataFlowRecord, Arc<ComponentLoader>)) -> Result<Self, Self::Error> {
+        let (dr, loader) = dr;
         let mut graph = StableGraph::<DataFlowNode, (String, String)>::new();
         let mut operators = Vec::new();
         let mut links: Vec<(EdgeIndex, LinkDescriptor)> = Vec::new();
@@ -540,6 +537,7 @@ impl TryFrom<DataFlowRecord> for DataFlowGraph {
             links,
             graph,
             operators_runners: HashMap::new(),
+            loader,
         })
     }
 }

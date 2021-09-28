@@ -28,6 +28,7 @@ use zenoh_flow::{
 use zenoh_flow::{model::link::PortDescriptor, zf_data, zf_empty_state};
 use zenoh_flow::{State, ZFResult};
 use zenoh_flow_examples::ZFUsize;
+use zenoh_flow::runtime::loader::ComponentLoader;
 
 static SOURCE: &str = "Counter";
 
@@ -134,7 +135,13 @@ impl Component for ExampleGenericSink {
 async fn main() {
     env_logger::init();
 
-    let mut zf_graph = zenoh_flow::runtime::graph::DataFlowGraph::new();
+    let znsession = Arc::new(zenoh::net::open(zenoh::net::config::peer()).await.unwrap());
+    let zsession = Arc::new(zenoh::Zenoh::new(zenoh::Properties::from(String::from("mode=peer")).into()).await.unwrap());
+
+    let loader = Arc::new(ComponentLoader::from_zenoh_session(znsession.clone(), zsession.clone()).await.unwrap());
+
+
+    let mut zf_graph = zenoh_flow::runtime::graph::DataFlowGraph::new(loader);
 
     let source = Arc::new(CountSource::new(None));
     let sink = Arc::new(ExampleGenericSink {});
