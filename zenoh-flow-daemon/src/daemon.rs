@@ -21,11 +21,11 @@ use zenoh_flow::model::{
     dataflow::DataFlowRecord,
 };
 use zenoh_flow::runtime::graph::DataFlowGraph;
+use zenoh_flow::runtime::loader::ComponentLoader;
 use zenoh_flow::runtime::message::ControlMessage;
 use zenoh_flow::runtime::resources::DataStore;
 use zenoh_flow::runtime::runners::{RunnerKind, RunnerManager};
 use zenoh_flow::runtime::RuntimeClient;
-use zenoh_flow::runtime::loader::ComponentLoader;
 use zenoh_flow::runtime::{Runtime, RuntimeConfig, RuntimeInfo, RuntimeStatus, RuntimeStatusKind};
 use zenoh_flow::types::{ZFError, ZFResult};
 
@@ -49,7 +49,7 @@ pub struct Daemon {
 }
 
 impl Daemon {
-    pub async fn make_daemon (
+    pub async fn make_daemon(
         zn: Arc<ZSession>,
         z: Arc<zenoh::Zenoh>,
         runtime_uuid: Uuid,
@@ -359,7 +359,9 @@ impl Runtime for Daemon {
 
         let mut dataflow_graph = DataFlowGraph::try_from((dfr.clone(), self.loader.clone()))?;
 
-        dataflow_graph.load(&self.runtime_name, self.zn.clone()).await?;
+        dataflow_graph
+            .load(&self.runtime_name, self.zn.clone())
+            .await?;
 
         dataflow_graph.make_connections(&self.runtime_name).await?;
 

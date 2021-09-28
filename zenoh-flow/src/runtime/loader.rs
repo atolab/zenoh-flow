@@ -12,6 +12,8 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 
+use crate::registry::RegistryClient;
+use crate::registry::RegistryFileClient;
 use crate::{
     model::component::{OperatorRecord, SinkRecord, SourceRecord},
     runtime::runners::{
@@ -24,24 +26,23 @@ use crate::{
 };
 use async_std::sync::Arc;
 use libloading::Library;
+use rand::seq::SliceRandom;
 use uhlc::HLC;
 use url::Url;
-use rand::seq::SliceRandom;
-use crate::registry::RegistryClient;
-use crate::registry::RegistryFileClient;
-
 
 pub static CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub static RUSTC_VERSION: &str = env!("RUSTC_VERSION");
 
 pub struct ComponentLoader {
     pub registry_client: Option<RegistryClient>,
-    pub file_client : RegistryFileClient,
+    pub file_client: RegistryFileClient,
 }
 
-
 impl ComponentLoader {
-    pub async fn from_zenoh_session (zn: Arc<zenoh::net::Session>, z: Arc<zenoh::Zenoh>) -> ZFResult<Self> {
+    pub async fn from_zenoh_session(
+        zn: Arc<zenoh::net::Session>,
+        z: Arc<zenoh::Zenoh>,
+    ) -> ZFResult<Self> {
         let servers = RegistryClient::find_servers(zn.clone()).await?;
         let registry_client = match servers.choose(&mut rand::thread_rng()) {
             Some(entry_point) => {
@@ -57,14 +58,18 @@ impl ComponentLoader {
 
         let file_client = RegistryFileClient::from(z);
 
-        Ok(Self{
+        Ok(Self {
             registry_client,
-            file_client
+            file_client,
         })
     }
 
-
-    pub async fn load_operator(&self, record: OperatorRecord, hlc: Arc<HLC>, path: String) -> ZFResult<OperatorRunner> {
+    pub async fn load_operator(
+        &self,
+        record: OperatorRecord,
+        hlc: Arc<HLC>,
+        path: String,
+    ) -> ZFResult<OperatorRunner> {
         let uri = Url::parse(&path).map_err(|err| ZFError::ParsingError(format!("{}", err)))?;
 
         match uri.scheme() {
@@ -74,8 +79,12 @@ impl ComponentLoader {
         }
     }
 
-
-    pub async fn load_source(&self,record: SourceRecord, hlc: PeriodicHLC, path: String) -> ZFResult<SourceRunner> {
+    pub async fn load_source(
+        &self,
+        record: SourceRecord,
+        hlc: PeriodicHLC,
+        path: String,
+    ) -> ZFResult<SourceRunner> {
         let uri = Url::parse(&path).map_err(|err| ZFError::ParsingError(format!("{}", err)))?;
 
         match uri.scheme() {
@@ -95,7 +104,6 @@ impl ComponentLoader {
         }
     }
 }
-
 
 /// Load the library of the operator.
 ///

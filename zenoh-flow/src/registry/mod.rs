@@ -22,20 +22,18 @@ use crate::{
         dataflow::DataFlowDescriptor,
         RegistryComponent,
     },
-    ZFResult, ZFError
+    ZFError, ZFResult,
 };
 use std::path::Path;
 use uuid::Uuid;
 use zenoh::Path as ZPath;
 use zenoh_cdn::client::Client;
-use znrpc_macros::{znservice, znserver};
+use znrpc_macros::{znserver, znservice};
 use zrpc::zrpcresult::{ZRPCError, ZRPCResult};
 use zrpc::ZNServe;
 
 use zenoh_cdn::server::Server;
 use zenoh_cdn::types::ServerConfig;
-
-
 
 use futures::prelude::*;
 use futures::select;
@@ -46,9 +44,6 @@ use zenoh::ZFuture;
 use crate::runtime::resources::DataStore;
 use crate::runtime::ZenohConfig;
 use crate::serde::{Deserialize, Serialize};
-
-
-
 
 #[znservice(
     timeout_s = 60,
@@ -148,7 +143,6 @@ impl From<Arc<zenoh::Zenoh>> for RegistryFileClient {
         Self { zcdn }
     }
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegistryConfig {

@@ -21,6 +21,7 @@ use std::io::Write;
 use zenoh_flow::async_std::stream::StreamExt;
 use zenoh_flow::async_std::sync::{Arc, Mutex};
 use zenoh_flow::model::link::{LinkFromDescriptor, LinkToDescriptor};
+use zenoh_flow::runtime::loader::ComponentLoader;
 use zenoh_flow::zf_spin_lock;
 use zenoh_flow::{
     default_input_rule, default_output_rule, downcast, get_input_raw, model::link::PortDescriptor,
@@ -28,7 +29,6 @@ use zenoh_flow::{
     Sink, Source, ZFError,
 };
 use zenoh_flow::{State, ZFResult};
-use zenoh_flow::runtime::loader::ComponentLoader;
 
 static SOURCE: &str = "Frame";
 static INPUT: &str = "Frame";
@@ -222,10 +222,17 @@ async fn main() {
     env_logger::init();
 
     let znsession = Arc::new(zenoh::net::open(zenoh::net::config::peer()).await.unwrap());
-    let zsession = Arc::new(zenoh::Zenoh::new(zenoh::Properties::from(String::from("mode=peer")).into()).await.unwrap());
+    let zsession = Arc::new(
+        zenoh::Zenoh::new(zenoh::Properties::from(String::from("mode=peer")).into())
+            .await
+            .unwrap(),
+    );
 
-    let loader = Arc::new(ComponentLoader::from_zenoh_session(znsession.clone(), zsession.clone()).await.unwrap());
-
+    let loader = Arc::new(
+        ComponentLoader::from_zenoh_session(znsession.clone(), zsession.clone())
+            .await
+            .unwrap(),
+    );
 
     let mut zf_graph = zenoh_flow::runtime::graph::DataFlowGraph::new(loader);
 

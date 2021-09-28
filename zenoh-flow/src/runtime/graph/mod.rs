@@ -26,8 +26,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use uhlc::HLC;
 
-
-use crate::runtime::loader::{ComponentLoader};
+use crate::runtime::loader::ComponentLoader;
 use crate::runtime::message::Message;
 use crate::runtime::runners::connector::{ZenohReceiver, ZenohSender};
 use crate::runtime::runners::{
@@ -52,7 +51,7 @@ pub struct DataFlowGraph {
     pub links: Vec<(EdgeIndex, LinkDescriptor)>,
     pub graph: StableGraph<DataFlowNode, (String, String)>,
     pub operators_runners: HashMap<OperatorId, (Runner, DataFlowNodeKind)>,
-    pub loader : Arc<ComponentLoader>
+    pub loader: Arc<ComponentLoader>,
 }
 
 impl DataFlowGraph {
@@ -226,7 +225,6 @@ impl DataFlowGraph {
     }
 
     pub async fn load(&mut self, runtime: &str, session: Arc<zenoh::net::Session>) -> ZFResult<()> {
-
         let hlc = Arc::new(uhlc::HLC::default());
 
         for (_, op) in &self.operators {
@@ -238,7 +236,10 @@ impl DataFlowGraph {
                 DataFlowNode::Operator(inner) => {
                     match &inner.uri {
                         Some(uri) => {
-                            let runner = self.loader.load_operator(inner.clone(), hlc.clone(), uri.clone()).await?;
+                            let runner = self
+                                .loader
+                                .load_operator(inner.clone(), hlc.clone(), uri.clone())
+                                .await?;
                             let runner = Runner::Operator(runner);
                             self.operators_runners
                                 .insert(inner.id.clone(), (runner, DataFlowNodeKind::Operator));
@@ -251,11 +252,14 @@ impl DataFlowGraph {
                 DataFlowNode::Source(inner) => {
                     match &inner.uri {
                         Some(uri) => {
-                            let runner = self.loader.load_source(
-                                inner.clone(),
-                                PeriodicHLC::new(hlc.clone(), inner.period.clone()),
-                                uri.clone(),
-                            ).await?;
+                            let runner = self
+                                .loader
+                                .load_source(
+                                    inner.clone(),
+                                    PeriodicHLC::new(hlc.clone(), inner.period.clone()),
+                                    uri.clone(),
+                                )
+                                .await?;
                             let runner = Runner::Source(runner);
                             self.operators_runners
                                 .insert(inner.id.clone(), (runner, DataFlowNodeKind::Source));
