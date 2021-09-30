@@ -13,6 +13,7 @@
 //
 #![allow(clippy::manual_async_fn)]
 
+use crate::async_std::path::PathBuf;
 use crate::async_std::sync::{Arc, Mutex};
 use crate::model::RegistryComponentArchitecture;
 use crate::OperatorId;
@@ -20,7 +21,7 @@ use crate::{
     model::{
         component::{OperatorDescriptor, SinkDescriptor, SourceDescriptor},
         dataflow::DataFlowDescriptor,
-        RegistryComponent,
+        ComponentKind, RegistryComponent,
     },
     ZFError, ZFResult,
 };
@@ -126,14 +127,19 @@ impl RegistryFileClient {
         id: &str,
         arch: &RegistryComponentArchitecture,
         tag: &str,
-    ) -> ZFResult<()> {
-        let resource_name =
-            ZPath::try_from(format!("/{}/{}/{}/{}/library", id, tag, arch.os, arch.arch))?;
-        Ok(self.zcdn.upload(path, &resource_name).await?)
+        kind: &ComponentKind,
+    ) -> ZFResult<ZPath> {
+        let resource_name = ZPath::try_from(format!(
+            "/{}/{}/{}/{}/{}/library",
+            kind, id, tag, arch.os, arch.arch
+        ))?;
+        self.zcdn.upload(path, &resource_name).await?;
+        Ok(resource_name)
     }
 
-    pub async fn get_component(_component_id: String, _path: &Path) -> ZFResult<()> {
-        Ok(())
+    pub async fn get_component(&self, component_uri: &ZPath, path: &Path) -> ZFResult<PathBuf> {
+        self.zcdn.download(component_uri, path).await?;
+        Ok(path.into())
     }
 }
 
@@ -264,9 +270,8 @@ impl TryFrom<RegistryConfig> for ZFRegistry {
         ));
 
         let zenoh_properties = zenoh::Properties::from(format!(
-            "mode={};peer={},{}",
+            "mode={};peer={}",
             &config.zenoh.kind,
-            &config.zenoh.listen.join(","),
             &config.zenoh.locators.join(","),
         ));
 

@@ -114,7 +114,13 @@ async fn main() {
     };
 
     #[cfg(feature = "local_registry")]
-    let zsession = match zenoh::Zenoh::new(Properties::from(String::from("mode=peer")).into()).await
+    let zsession = match zenoh::Zenoh::new(
+        Properties::from(String::from(
+            "mode=peer;peer=unixsock-stream//tmp/zf-registry.sock",
+        ))
+        .into(),
+    )
+    .await
     {
         Ok(z) => Arc::new(z),
         Err(e) => {
@@ -169,225 +175,226 @@ async fn main() {
             };
             let uri = format!("file://{}", target);
 
-            let (metadata_graph, _metadata_arch, descriptor) = match component_info.kind {
-                ComponentKind::Operator => {
-                    if component_info.inputs.is_none() {
-                        println!(
-                            "{}: Zenoh-Flow metadata is missing inputs for Operator component",
-                            "error".red().bold()
-                        );
-                        exit(-1);
-                    }
-
-                    if component_info.outputs.is_none() {
-                        println!(
-                            "{}: Zenoh-Flow metadata is missing outputs for Operator component",
-                            "error".red().bold()
-                        );
-                        exit(-1);
-                    }
-
-                    let inputs = component_info.inputs.unwrap();
-                    let outputs = component_info.outputs.unwrap();
-
-                    if inputs.is_empty() {
-                        println!("{}: Zenoh-Flow metadata has empty inputs for Operator, it should have at least one input", "error".red().bold());
-                        exit(-1);
-                    }
-
-                    if outputs.is_empty() {
-                        println!("{}: Zenoh-Flow metadata has empty outputs for Operator, it should have at least one output", "error".red().bold());
-                        exit(-1);
-                    }
-
-                    let descriptor = OperatorDescriptor {
-                        id: OperatorId::from(component_info.id.clone()),
-                        inputs: inputs.clone(),
-                        outputs: outputs.clone(),
-                        uri: Some(uri.clone()),
-                        configuration: None,
-                        runtime: None,
-                    };
-
-                    let metadata_arch = RegistryComponentArchitecture {
-                        arch: String::from(std::env::consts::ARCH),
-                        os: String::from(std::env::consts::OS),
-                        uri,
-                        checksum: String::from(""),
-                        signature: String::from(""),
-                    };
-
-                    let metadata_tag = RegistryComponentTag {
-                        #[cfg(feature = "local_registry")]
-                        name: version_tag.clone(),
-                        #[cfg(not(feature = "local_registry"))]
-                        name: version_tag,
-                        requirement_labels: vec![],
-                        architectures: vec![metadata_arch.clone()],
-                    };
-
-                    let metadata_graph = RegistryComponent {
-                        id: OperatorId::from(component_info.id.clone()),
-                        kind: component_info.kind.clone(),
-                        classes: vec![],
-                        tags: vec![metadata_tag],
-                        inputs,
-                        outputs,
-                        period: None,
-                    };
-
-                    let yml_descriptor = match serde_yaml::to_string(&descriptor) {
-                        Ok(yml) => yml,
-                        Err(e) => {
-                            println!("{}: unable to serialize descriptor {}", "error".red(), e);
-                            exit(-1)
+            let (mut metadata_graph, mut _metadata_tag, mut _metadata_arch, descriptor) =
+                match component_info.kind {
+                    ComponentKind::Operator => {
+                        if component_info.inputs.is_none() {
+                            println!(
+                                "{}: Zenoh-Flow metadata is missing inputs for Operator component",
+                                "error".red().bold()
+                            );
+                            exit(-1);
                         }
-                    };
-                    (metadata_graph, metadata_arch, yml_descriptor)
-                }
-                ComponentKind::Source => {
-                    if component_info.inputs.is_some() {
-                        println!("{}: Zenoh-Flow metadata has inputs for Source component, they will be discarded", "warning".yellow().bold());
-                    }
 
-                    if component_info.outputs.is_none() {
-                        println!(
-                            "{}: Zenoh-Flow metadata is missing outputs for Source component",
-                            "error".red().bold()
-                        );
-                        exit(-1);
-                    }
-
-                    let outputs = component_info.outputs.unwrap();
-
-                    if outputs.is_empty() {
-                        println!("{}: Zenoh-Flow metadata has empty outputs for Source, it should exactly one output", "error".red().bold());
-                        exit(-1);
-                    }
-
-                    if outputs.len() > 1 {
-                        println!("{}: Zenoh-Flow metadata has more than one output for Source, it should exactly one output", "error".red().bold());
-                        exit(-1);
-                    }
-
-                    let output = &outputs[0];
-
-                    let descriptor = SourceDescriptor {
-                        id: OperatorId::from(component_info.id.clone()),
-                        output: output.clone(),
-                        uri: Some(uri.clone()),
-                        configuration: None,
-                        runtime: None,
-                        period: None,
-                    };
-
-                    let metadata_arch = RegistryComponentArchitecture {
-                        arch: String::from(std::env::consts::ARCH),
-                        os: String::from(std::env::consts::OS),
-                        uri,
-                        checksum: String::from(""),
-                        signature: String::from(""),
-                    };
-
-                    let metadata_tag = RegistryComponentTag {
-                        #[cfg(feature = "local_registry")]
-                        name: version_tag.clone(),
-                        #[cfg(not(feature = "local_registry"))]
-                        name: version_tag,
-                        requirement_labels: vec![],
-                        architectures: vec![metadata_arch.clone()],
-                    };
-
-                    let metadata_graph = RegistryComponent {
-                        id: OperatorId::from(component_info.id.clone()),
-                        kind: component_info.kind.clone(),
-                        classes: vec![],
-                        tags: vec![metadata_tag],
-                        inputs: vec![],
-                        outputs: vec![output.clone()],
-                        period: None,
-                    };
-
-                    let yml_descriptor = match serde_yaml::to_string(&descriptor) {
-                        Ok(yml) => yml,
-                        Err(e) => {
-                            println!("{}: unable to serialize descriptor {}", "error".red(), e);
-                            exit(-1)
+                        if component_info.outputs.is_none() {
+                            println!(
+                                "{}: Zenoh-Flow metadata is missing outputs for Operator component",
+                                "error".red().bold()
+                            );
+                            exit(-1);
                         }
-                    };
-                    (metadata_graph, metadata_arch, yml_descriptor)
-                }
-                ComponentKind::Sink => {
-                    if component_info.inputs.is_none() {
-                        println!(
-                            "{}: Zenoh-Flow metadata is missing inputs for Sink component",
-                            "error".red().bold()
-                        );
-                        exit(-1);
-                    }
 
-                    if component_info.outputs.is_some() {
-                        println!("{}: Zenoh-Flow metadata has outputs for Sink component, they will be discarded", "warning".yellow().bold());
-                    }
+                        let inputs = component_info.inputs.unwrap();
+                        let outputs = component_info.outputs.unwrap();
 
-                    let inputs = component_info.inputs.unwrap();
-
-                    if inputs.is_empty() {
-                        println!("{}: Zenoh-Flow metadata has empty inputs for Sink, it should exactly one inputs", "error".red().bold());
-                        exit(-1);
-                    }
-
-                    if inputs.len() > 1 {
-                        println!("{}: Zenoh-Flow metadata has more than one input for Sink, it should exactly one input", "error".red().bold());
-                        exit(-1);
-                    }
-
-                    let input = &inputs[0];
-
-                    let descriptor = SinkDescriptor {
-                        id: OperatorId::from(component_info.id.clone()),
-                        input: input.clone(),
-                        uri: Some(uri.clone()),
-                        configuration: None,
-                        runtime: None,
-                    };
-
-                    let metadata_arch = RegistryComponentArchitecture {
-                        arch: String::from(std::env::consts::ARCH),
-                        os: String::from(std::env::consts::OS),
-                        uri,
-                        checksum: String::from(""),
-                        signature: String::from(""),
-                    };
-
-                    let metadata_tag = RegistryComponentTag {
-                        #[cfg(feature = "local_registry")]
-                        name: version_tag.clone(),
-                        #[cfg(not(feature = "local_registry"))]
-                        name: version_tag,
-                        requirement_labels: vec![],
-                        architectures: vec![metadata_arch.clone()],
-                    };
-
-                    let metadata_graph = RegistryComponent {
-                        id: OperatorId::from(component_info.id.clone()),
-                        kind: component_info.kind.clone(),
-                        classes: vec![],
-                        tags: vec![metadata_tag],
-                        inputs: vec![input.clone()],
-                        outputs: vec![],
-                        period: None,
-                    };
-                    let yml_descriptor = match serde_yaml::to_string(&descriptor) {
-                        Ok(yml) => yml,
-                        Err(e) => {
-                            println!("{}: unable to serialize descriptor {}", "error".red(), e);
-                            exit(-1)
+                        if inputs.is_empty() {
+                            println!("{}: Zenoh-Flow metadata has empty inputs for Operator, it should have at least one input", "error".red().bold());
+                            exit(-1);
                         }
-                    };
-                    (metadata_graph, metadata_arch, yml_descriptor)
-                }
-            };
+
+                        if outputs.is_empty() {
+                            println!("{}: Zenoh-Flow metadata has empty outputs for Operator, it should have at least one output", "error".red().bold());
+                            exit(-1);
+                        }
+
+                        let descriptor = OperatorDescriptor {
+                            id: OperatorId::from(component_info.id.clone()),
+                            inputs: inputs.clone(),
+                            outputs: outputs.clone(),
+                            uri: Some(uri.clone()),
+                            configuration: None,
+                            runtime: None,
+                        };
+
+                        let metadata_arch = RegistryComponentArchitecture {
+                            arch: String::from(std::env::consts::ARCH),
+                            os: String::from(std::env::consts::OS),
+                            uri,
+                            checksum: String::from(""),
+                            signature: String::from(""),
+                        };
+
+                        let metadata_tag = RegistryComponentTag {
+                            #[cfg(feature = "local_registry")]
+                            name: version_tag.clone(),
+                            #[cfg(not(feature = "local_registry"))]
+                            name: version_tag,
+                            requirement_labels: vec![],
+                            architectures: vec![],
+                        };
+
+                        let metadata_graph = RegistryComponent {
+                            id: OperatorId::from(component_info.id.clone()),
+                            kind: component_info.kind.clone(),
+                            classes: vec![],
+                            tags: vec![],
+                            inputs,
+                            outputs,
+                            period: None,
+                        };
+
+                        let yml_descriptor = match serde_yaml::to_string(&descriptor) {
+                            Ok(yml) => yml,
+                            Err(e) => {
+                                println!("{}: unable to serialize descriptor {}", "error".red(), e);
+                                exit(-1)
+                            }
+                        };
+                        (metadata_graph, metadata_tag, metadata_arch, yml_descriptor)
+                    }
+                    ComponentKind::Source => {
+                        if component_info.inputs.is_some() {
+                            println!("{}: Zenoh-Flow metadata has inputs for Source component, they will be discarded", "warning".yellow().bold());
+                        }
+
+                        if component_info.outputs.is_none() {
+                            println!(
+                                "{}: Zenoh-Flow metadata is missing outputs for Source component",
+                                "error".red().bold()
+                            );
+                            exit(-1);
+                        }
+
+                        let outputs = component_info.outputs.unwrap();
+
+                        if outputs.is_empty() {
+                            println!("{}: Zenoh-Flow metadata has empty outputs for Source, it should exactly one output", "error".red().bold());
+                            exit(-1);
+                        }
+
+                        if outputs.len() > 1 {
+                            println!("{}: Zenoh-Flow metadata has more than one output for Source, it should exactly one output", "error".red().bold());
+                            exit(-1);
+                        }
+
+                        let output = &outputs[0];
+
+                        let descriptor = SourceDescriptor {
+                            id: OperatorId::from(component_info.id.clone()),
+                            output: output.clone(),
+                            uri: Some(uri.clone()),
+                            configuration: None,
+                            runtime: None,
+                            period: None,
+                        };
+
+                        let metadata_arch = RegistryComponentArchitecture {
+                            arch: String::from(std::env::consts::ARCH),
+                            os: String::from(std::env::consts::OS),
+                            uri,
+                            checksum: String::from(""),
+                            signature: String::from(""),
+                        };
+
+                        let metadata_tag = RegistryComponentTag {
+                            #[cfg(feature = "local_registry")]
+                            name: version_tag.clone(),
+                            #[cfg(not(feature = "local_registry"))]
+                            name: version_tag,
+                            requirement_labels: vec![],
+                            architectures: vec![],
+                        };
+
+                        let metadata_graph = RegistryComponent {
+                            id: OperatorId::from(component_info.id.clone()),
+                            kind: component_info.kind.clone(),
+                            classes: vec![],
+                            tags: vec![],
+                            inputs: vec![],
+                            outputs: vec![output.clone()],
+                            period: None,
+                        };
+
+                        let yml_descriptor = match serde_yaml::to_string(&descriptor) {
+                            Ok(yml) => yml,
+                            Err(e) => {
+                                println!("{}: unable to serialize descriptor {}", "error".red(), e);
+                                exit(-1)
+                            }
+                        };
+                        (metadata_graph, metadata_tag, metadata_arch, yml_descriptor)
+                    }
+                    ComponentKind::Sink => {
+                        if component_info.inputs.is_none() {
+                            println!(
+                                "{}: Zenoh-Flow metadata is missing inputs for Sink component",
+                                "error".red().bold()
+                            );
+                            exit(-1);
+                        }
+
+                        if component_info.outputs.is_some() {
+                            println!("{}: Zenoh-Flow metadata has outputs for Sink component, they will be discarded", "warning".yellow().bold());
+                        }
+
+                        let inputs = component_info.inputs.unwrap();
+
+                        if inputs.is_empty() {
+                            println!("{}: Zenoh-Flow metadata has empty inputs for Sink, it should exactly one inputs", "error".red().bold());
+                            exit(-1);
+                        }
+
+                        if inputs.len() > 1 {
+                            println!("{}: Zenoh-Flow metadata has more than one input for Sink, it should exactly one input", "error".red().bold());
+                            exit(-1);
+                        }
+
+                        let input = &inputs[0];
+
+                        let descriptor = SinkDescriptor {
+                            id: OperatorId::from(component_info.id.clone()),
+                            input: input.clone(),
+                            uri: Some(uri.clone()),
+                            configuration: None,
+                            runtime: None,
+                        };
+
+                        let metadata_arch = RegistryComponentArchitecture {
+                            arch: String::from(std::env::consts::ARCH),
+                            os: String::from(std::env::consts::OS),
+                            uri,
+                            checksum: String::from(""),
+                            signature: String::from(""),
+                        };
+
+                        let metadata_tag = RegistryComponentTag {
+                            #[cfg(feature = "local_registry")]
+                            name: version_tag.clone(),
+                            #[cfg(not(feature = "local_registry"))]
+                            name: version_tag,
+                            requirement_labels: vec![],
+                            architectures: vec![],
+                        };
+
+                        let metadata_graph = RegistryComponent {
+                            id: OperatorId::from(component_info.id.clone()),
+                            kind: component_info.kind.clone(),
+                            classes: vec![],
+                            tags: vec![],
+                            inputs: vec![input.clone()],
+                            outputs: vec![],
+                            period: None,
+                        };
+                        let yml_descriptor = match serde_yaml::to_string(&descriptor) {
+                            Ok(yml) => yml,
+                            Err(e) => {
+                                println!("{}: unable to serialize descriptor {}", "error".red(), e);
+                                exit(-1)
+                            }
+                        };
+                        (metadata_graph, metadata_tag, metadata_arch, yml_descriptor)
+                    }
+                };
             println!(
                 "{} Component {} - Kind {}",
                 "Compiling".green().bold(),
@@ -431,38 +438,39 @@ async fn main() {
             }
 
             #[cfg(feature = "local_registry")]
-            if client.is_some() {
-                println!(
-                    "{} {} to local registry",
-                    "Uploading".green().bold(),
-                    component_info.id.bold()
-                );
-                client
-                    .as_ref()
-                    .unwrap()
-                    .add_graph(metadata_graph)
-                    .await
-                    .unwrap()
-                    .unwrap();
+            {
+                if let Some(rclient) = client {
+                    println!(
+                        "{} {} to local registry",
+                        "Uploading".green().bold(),
+                        target.bold()
+                    );
+                    let zpath = file_client
+                        .send_component(
+                            &std::path::PathBuf::from(target),
+                            &component_info.id,
+                            &_metadata_arch,
+                            &version_tag,
+                            &component_info.kind,
+                        )
+                        .await
+                        .unwrap();
+
+                    _metadata_arch.uri = format!("zfregistry://{}", zpath);
+
+                    _metadata_tag.architectures = vec![_metadata_arch];
+
+                    metadata_graph.tags = vec![_metadata_tag];
+                    match component_info.kind {
+                        ComponentKind::Operator => {
+                            rclient.add_graph(metadata_graph).await.unwrap().unwrap();
+                        }
+                        ComponentKind::Sink => unimplemented!(),
+                        ComponentKind::Source => unimplemented!(),
+                    }
+                }
             }
 
-            #[cfg(feature = "local_registry")]
-            if client.is_some() {
-                println!(
-                    "{} {} to local registry",
-                    "Uploading".green().bold(),
-                    target.bold()
-                );
-                file_client
-                    .send_component(
-                        &std::path::PathBuf::from(target),
-                        &component_info.id,
-                        &_metadata_arch,
-                        &version_tag,
-                    )
-                    .await
-                    .unwrap();
-            }
             let build_target = if release {
                 String::from("release")
             } else {

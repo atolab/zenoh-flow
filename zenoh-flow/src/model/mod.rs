@@ -47,12 +47,12 @@ impl std::str::FromStr for ComponentKind {
     }
 }
 
-impl std::string::ToString for ComponentKind {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for ComponentKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::Operator => String::from("operator"),
-            Self::Sink => String::from("sink"),
-            Self::Source => String::from("source"),
+            Self::Operator => write!(f, "operator"),
+            Self::Sink => write!(f, "sink"),
+            Self::Source => write!(f, "source"),
         }
     }
 }

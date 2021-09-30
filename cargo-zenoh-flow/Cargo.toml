@@ -45,4 +45,4 @@ path = "src/lib.rs"
 
 local_registry = ["zenoh","zenoh-util", "rand"]
 
-default = []
+default = ["local_registry"]

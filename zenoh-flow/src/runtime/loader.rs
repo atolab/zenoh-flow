@@ -110,7 +110,7 @@ impl ComponentLoader {
 /// # Safety
 ///
 /// This function dynamically loads an external library, things can go wrong:
-/// - it will panick if the symbol `zfoperator_declaration` is not found,
+/// - it will panic if the symbol `zfoperator_declaration` is not found,
 /// - be sure to *trust* the code you are loading.
 pub unsafe fn load_lib_operator(
     record: OperatorRecord,
@@ -140,7 +140,7 @@ pub unsafe fn load_lib_operator(
 /// # Safety
 ///
 /// This function dynamically loads an external library, things can go wrong:
-/// - it will panick if the symbol `zfsource_declaration` is not found,
+/// - it will panic if the symbol `zfsource_declaration` is not found,
 /// - be sure to *trust* the code you are loading.
 pub unsafe fn load_lib_source(
     record: SourceRecord,
@@ -169,7 +169,7 @@ pub unsafe fn load_lib_source(
 /// # Safety
 ///
 /// This function dynamically loads an external library, things can go wrong:
-/// - it will panick if the symbol `zfsink_declaration` is not found,
+/// - it will panic if the symbol `zfsink_declaration` is not found,
 /// - be sure to *trust* the code you are loading.
 pub unsafe fn load_lib_sink(record: SinkRecord, path: String) -> ZFResult<SinkRunner> {
     log::debug!("Sink Loading {}", path);
