@@ -16,7 +16,7 @@
 use std::convert::TryFrom;
 use std::fs::{File, *};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 use zenoh_flow::async_std::sync::Arc;
 use zenoh_flow::runtime::loader::ComponentLoader;
@@ -50,7 +50,7 @@ async fn main() {
     );
 
     let loader = Arc::new(
-        ComponentLoader::from_zenoh_session(znsession.clone(), zsession.clone())
+        ComponentLoader::new(znsession.clone(), zsession.clone(), PathBuf::from("./"))
             .await
             .unwrap(),
     );

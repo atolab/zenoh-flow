@@ -56,12 +56,14 @@ impl Daemon {
         runtime_name: String,
         config: RuntimeConfig,
     ) -> ZFResult<Self> {
+        let loader = Arc::new(
+            ComponentLoader::new(zn.clone(), z.clone(), config.path.clone().into()).await?,
+        );
+
         let state = Arc::new(Mutex::new(RTState {
             graphs: HashMap::new(),
             config,
         }));
-
-        let loader = Arc::new(ComponentLoader::from_zenoh_session(zn.clone(), z.clone()).await?);
 
         Ok(Self {
             zn: zn.clone(),
