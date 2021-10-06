@@ -126,24 +126,29 @@ impl ComponentLoader {
 
         // A URI for zfregistry is something like:
         // "/operator/myoperator/latest/linux/x86_64/library",
-        // We will store  it the root path /var/zenoh-flow/components/
+        // We will store  it the root path eg. /var/zenoh-flow/components/
         // So the complete path will be something like:
         // /var/zenoh-flow/components/operator/myoperator/latest/linux/x86_64/library.so
 
         let destination_path = self.storage_path.clone().join(format!("{}.so", uri));
 
-        let parent = destination_path
-            .parent()
-            .ok_or_else(|| ZFError::IOError("Malformed component path".to_string()))?;
+        match destination_path.exists() {
+            true => Ok(destination_path),
+            false => {
+                let parent = destination_path
+                    .parent()
+                    .ok_or_else(|| ZFError::IOError("Malformed component path".to_string()))?;
 
-        // creates the whole directory tree (if needed) eg. /var/zenoh-flow/components/operator/myoperator/latest/linux/x86_64/
-        create_dir_all(parent).await?;
+                // creates the whole directory tree (if needed) eg. /var/zenoh-flow/components/operator/myoperator/latest/linux/x86_64/
+                create_dir_all(parent).await?;
 
-        Ok(self
-            .file_client
-            .get_component(&zpath, &destination_path)
-            .await?
-            .into())
+                Ok(self
+                    .file_client
+                    .get_component(&zpath, &destination_path)
+                    .await?
+                    .into())
+            }
+        }
     }
 }
 

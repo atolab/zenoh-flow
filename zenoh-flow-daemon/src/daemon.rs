@@ -57,7 +57,8 @@ impl Daemon {
         config: RuntimeConfig,
     ) -> ZFResult<Self> {
         let loader = Arc::new(
-            ComponentLoader::new(zn.clone(), z.clone(), config.path.clone().into()).await?,
+            ComponentLoader::new(zn.clone(), z.clone(), config.components_path.clone().into())
+                .await?,
         );
 
         let state = Arc::new(Mutex::new(RTState {

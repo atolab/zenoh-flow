@@ -160,8 +160,9 @@ pub struct ZenohConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RuntimeConfig {
-    pub pid_file: String, //Where the PID file resides
-    pub path: String,     //Where the libraries are downloaded/located
+    pub pid_file: String,        //Where the PID file resides
+    pub path: String,            //Where the configuration resides
+    pub components_path: String, //Where the libraries are downloaded/located
     pub name: Option<String>,
     pub uuid: Option<Uuid>,
     pub zenoh: ZenohConfig,

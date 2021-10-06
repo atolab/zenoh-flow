@@ -29,6 +29,7 @@ use zenoh_flow::{
 use zenoh_flow::{model::link::PortDescriptor, zf_data, zf_empty_state};
 use zenoh_flow::{State, ZFResult};
 use zenoh_flow_examples::ZFUsize;
+use std::path::PathBuf;
 
 static SOURCE: &str = "Counter";
 
@@ -143,7 +144,7 @@ async fn main() {
     );
 
     let loader = Arc::new(
-        ComponentLoader::from_zenoh_session(znsession.clone(), zsession.clone())
+        ComponentLoader::new(znsession.clone(), zsession.clone(), PathBuf::from("./"))
             .await
             .unwrap(),
     );

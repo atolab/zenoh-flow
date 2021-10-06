@@ -29,6 +29,7 @@ use zenoh_flow::{
     Sink, Source, ZFError,
 };
 use zenoh_flow::{State, ZFResult};
+use std::path::PathBuf;
 
 static SOURCE: &str = "Frame";
 static INPUT: &str = "Frame";
@@ -229,7 +230,7 @@ async fn main() {
     );
 
     let loader = Arc::new(
-        ComponentLoader::from_zenoh_session(znsession.clone(), zsession.clone())
+        ComponentLoader::new(znsession.clone(), zsession.clone(),PathBuf::from("./"))
             .await
             .unwrap(),
     );
