@@ -17,6 +17,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use zenoh_flow::async_std::stream::StreamExt;
 use zenoh_flow::async_std::sync::Arc;
@@ -29,7 +30,6 @@ use zenoh_flow::{
 use zenoh_flow::{model::link::PortDescriptor, zf_data, zf_empty_state};
 use zenoh_flow::{State, ZFResult};
 use zenoh_flow_examples::ZFUsize;
-use std::path::PathBuf;
 
 static SOURCE: &str = "Counter";
 

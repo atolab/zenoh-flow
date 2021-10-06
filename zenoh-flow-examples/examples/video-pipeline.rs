@@ -18,6 +18,7 @@ use opencv::{core, highgui, prelude::*, videoio};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
 use zenoh_flow::async_std::stream::StreamExt;
 use zenoh_flow::async_std::sync::{Arc, Mutex};
 use zenoh_flow::model::link::{LinkFromDescriptor, LinkToDescriptor};
@@ -29,7 +30,6 @@ use zenoh_flow::{
     Sink, Source, ZFError,
 };
 use zenoh_flow::{State, ZFResult};
-use std::path::PathBuf;
 
 static SOURCE: &str = "Frame";
 static INPUT: &str = "Frame";
@@ -230,7 +230,7 @@ async fn main() {
     );
 
     let loader = Arc::new(
-        ComponentLoader::new(znsession.clone(), zsession.clone(),PathBuf::from("./"))
+        ComponentLoader::new(znsession.clone(), zsession.clone(), PathBuf::from("./"))
             .await
             .unwrap(),
     );
