@@ -130,7 +130,7 @@ async fn main() {
     };
 
     #[cfg(feature = "local_registry")]
-    let file_client = RegistryFileClient::from(zsession);
+    let file_client = RegistryFileClient::new(zsession, true);
 
     match args {
         ZFCtl::Build {

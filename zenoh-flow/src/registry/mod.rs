@@ -16,6 +16,7 @@
 use crate::async_std::path::PathBuf;
 use crate::async_std::sync::{Arc, Mutex};
 use crate::model::RegistryComponentArchitecture;
+use crate::types::{LOCAL_REGISTRY_FILE_ROOT, REMOTE_REGISTRY_FILE_ROOT};
 use crate::OperatorId;
 use crate::{
     model::{
@@ -121,6 +122,19 @@ pub struct RegistryFileClient {
 }
 
 impl RegistryFileClient {
+    pub fn new(zenoh: Arc<zenoh::Zenoh>, is_local: bool) -> Self {
+        match is_local {
+            true => {
+                let zcdn = Client::new(zenoh, Some(String::from(LOCAL_REGISTRY_FILE_ROOT))); //This should be a constant.
+                Self { zcdn }
+            }
+            false => {
+                let zcdn = Client::new(zenoh, Some(String::from(REMOTE_REGISTRY_FILE_ROOT))); //This should be a constant.
+                Self { zcdn }
+            }
+        }
+    }
+
     pub async fn send_component(
         &self,
         path: &Path,
@@ -143,19 +157,13 @@ impl RegistryFileClient {
     }
 }
 
-impl From<Arc<zenoh::Zenoh>> for RegistryFileClient {
-    fn from(zenoh: Arc<zenoh::Zenoh>) -> Self {
-        let zcdn = Client::new(zenoh);
-        Self { zcdn }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegistryConfig {
     pub pid_file: String,
     pub path: String,
     pub zenoh: ZenohConfig,
-    pub cdn: ServerConfig,
+    pub chunks_dir: String,
+    pub is_local: bool,
 }
 
 impl TryFrom<String> for RegistryConfig {
@@ -184,11 +192,23 @@ impl ZFRegistry {
         let state = Arc::new(Mutex::new(RegistryState {
             config: config.clone(),
         }));
+        let chunks_dir = std::path::PathBuf::from(config.chunks_dir.clone());
+        let zcdn_config = match config.is_local {
+            true => ServerConfig {
+                chunks_dir,
+                resource_space: format!("{}/**", LOCAL_REGISTRY_FILE_ROOT),
+            },
+            false => ServerConfig {
+                chunks_dir,
+                resource_space: format!("{}/**", REMOTE_REGISTRY_FILE_ROOT),
+            },
+        };
+
         Self {
             zn,
             store: DataStore::new(z.clone()),
             state,
-            cdn_server: Server::new(z, config.cdn),
+            cdn_server: Server::new(z, zcdn_config),
         }
     }
 

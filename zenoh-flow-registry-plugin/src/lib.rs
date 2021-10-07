@@ -15,6 +15,7 @@
 #![recursion_limit = "256"]
 
 use async_std::fs;
+use async_std::fs::create_dir_all;
 use async_std::path::Path;
 use async_std::sync::Arc;
 use async_std::task::JoinHandle;
@@ -94,12 +95,18 @@ async fn run(runtime: Runtime, config: String, stopper: Receiver<()>) -> ZResult
 
     let conf_file_path = Path::new(&config);
 
-    let conf = RegistryConfig::try_from(read_file(conf_file_path).await)?;
-
     log::debug!(
         "Run Zenoh Flow registry plugin with config path={:?}",
         conf_file_path
     );
+
+    let conf = RegistryConfig::try_from(read_file(conf_file_path).await)?;
+
+    create_dir_all(&conf.chunks_dir).await.map_err(|e| {
+        zerror2!(ZErrorKind::Other {
+            descr: format!("Error when creating needed directories {:?}", e)
+        })
+    })?;
 
     // The registry will create its own zenoh::net and zenoh sessions.
     let registry = ZFRegistry::try_from(conf)?;

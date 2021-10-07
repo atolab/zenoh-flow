@@ -1,10 +1,9 @@
 ---
     pid_file : /var/zenoh-flow/registry.pid
-    path : /etc/zenoh-flow-registry
+    path : /etc/zenoh-flow/registry
+    chunks_dir : /var/zenoh-flow/registry/chunks
+    is_local: true,
     zenoh :
       kind: client
       listen: ["tcp/127.0.0.1:35997"]
-      locators: ["unixsock-stream//tmp/zf-registry.sock"]
-    cdn:
-      chunks_dir : /tmp/zcdn-zf-registry-chunks
-      resource_space: /zenohcdn/**
+      locators: ["unixsock-stream//var/zenoh-flow/registry/local.sock"]

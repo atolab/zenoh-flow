@@ -21,6 +21,9 @@ use std::collections::HashMap;
 use std::convert::From;
 use uhlc::Timestamp;
 
+pub static LOCAL_REGISTRY_FILE_ROOT: &str = "/zcdn/zf-registry/local";
+pub static REMOTE_REGISTRY_FILE_ROOT: &str = "/zcdn/zf-registry/remote";
+
 pub type OperatorId = Arc<str>;
 pub type PortId = Arc<str>;
 pub type RuntimeId = Arc<str>;

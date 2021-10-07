@@ -63,7 +63,7 @@ impl ComponentLoader {
             }
         };
 
-        let file_client = RegistryFileClient::from(z);
+        let file_client = RegistryFileClient::new(z, true);
 
         Ok(Self {
             registry_client,
