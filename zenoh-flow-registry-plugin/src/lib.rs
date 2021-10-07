@@ -30,9 +30,9 @@ use zenoh_plugin_trait::prelude::*;
 use zenoh_util::core::{ZError, ZErrorKind};
 use zenoh_util::zerror2;
 
-pub struct ExamplePlugin {}
+pub struct RegistryPlugin {}
 
-zenoh_plugin_trait::declare_plugin!(ExamplePlugin);
+zenoh_plugin_trait::declare_plugin!(RegistryPlugin);
 
 pub struct RegistryPluginStopper {
     sender: Arc<Sender<()>>,
@@ -45,7 +45,7 @@ impl PluginStopper for RegistryPluginStopper {
     }
 }
 
-impl Plugin for ExamplePlugin {
+impl Plugin for RegistryPlugin {
     type Requirements = Vec<Arg<'static, 'static>>;
     type StartArgs = (Runtime, ArgMatches<'static>);
     fn compatibility() -> zenoh_plugin_trait::PluginId {
