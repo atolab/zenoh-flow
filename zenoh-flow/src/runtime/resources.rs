@@ -45,6 +45,7 @@ pub static KEY_REGISTRY: &str = "registry";
 
 pub static KEY_FLOWS: &str = "flows";
 pub static KEY_GRAPHS: &str = "graphs";
+pub static KEY_DOT: &str = "dot";
 
 pub static KEY_INFO: &str = "info";
 pub static KEY_STATUS: &str = "status";
@@ -154,6 +155,36 @@ macro_rules! FLOW_SELECTOR_BY_INSTANCE {
             $crate::runtime::resources::KEY_RUNTIMES,
             $crate::runtime::resources::KEY_FLOWS,
             $iid
+        )
+    };
+}
+
+#[macro_export]
+macro_rules! DOT_SELECTOR_BY_INSTANCE {
+    ($prefix:expr, $iid:expr) => {
+        format!(
+            "{}/{}/*/{}/*/{}/{}",
+            $prefix,
+            $crate::runtime::resources::KEY_RUNTIMES,
+            $crate::runtime::resources::KEY_FLOWS,
+            $iid,
+            $crate::runtime::resources::KEY_DOT
+        )
+    };
+}
+
+#[macro_export]
+macro_rules! DOT_PATH_INSTANCE {
+    ($prefix:expr, $rtid:expr, $fid:expr, $iid:expr) => {
+        format!(
+            "{}/{}/{}/{}/{}/{}/{}",
+            $prefix,
+            $crate::runtime::resources::KEY_RUNTIMES,
+            $rtid,
+            $crate::runtime::resources::KEY_FLOWS,
+            $fid,
+            $iid,
+            $crate::runtime::resources::KEY_DOT
         )
     };
 }
@@ -511,6 +542,26 @@ impl DataStore {
         }
     }
 
+    pub async fn get_dot_by_instance(&self, iid: &Uuid) -> ZFResult<String> {
+        let selector = zenoh::Selector::try_from(DOT_SELECTOR_BY_INSTANCE!(ROOT_STANDALONE, iid))?;
+        let ws = self.z.workspace(None).await?;
+        let mut ds = ws.get(&selector).await?;
+
+        // Not sure this is needed...
+        let data = ds.collect::<Vec<zenoh::Data>>().await;
+
+        match data.len() {
+            0 => Err(ZFError::Empty),
+            _ => {
+                let kv = &data[0];
+                match &kv.value {
+                    zenoh::Value::StringUtf8(dot) => Ok(dot.to_string()),
+                    _ => Err(ZFError::DeseralizationError),
+                }
+            }
+        }
+    }
+
     pub async fn get_runtime_flow_instances(
         &self,
         rtid: &Uuid,
@@ -626,6 +677,35 @@ impl DataStore {
         let ws = self.z.workspace(None).await?;
         let encoded_info = serialize_data(flow_instance)?;
         Ok(ws.put(&path, encoded_info.into()).await?)
+    }
+
+    pub async fn remove_runtime_dot_instance(
+        &self,
+        rtid: &Uuid,
+        fid: &str,
+        iid: &Uuid,
+    ) -> ZFResult<()> {
+        let path = zenoh::Path::try_from(DOT_PATH_INSTANCE!(ROOT_STANDALONE, rtid, fid, iid))?;
+        let ws = self.z.workspace(None).await?;
+        Ok(ws.delete(&path).await?)
+    }
+
+    pub async fn add_runtime_dot(
+        &self,
+        rtid: &Uuid,
+        flow_id: &str,
+        instance_id: &str,
+        dot: String,
+    ) -> ZFResult<()> {
+        let path = zenoh::Path::try_from(DOT_PATH_INSTANCE!(
+            ROOT_STANDALONE,
+            rtid,
+            flow_id,
+            instance_id
+        ))?;
+        let ws = self.z.workspace(None).await?;
+        let value = zenoh::Value::StringUtf8(dot);
+        Ok(ws.put(&path, value).await?)
     }
 
     // Registry Related
