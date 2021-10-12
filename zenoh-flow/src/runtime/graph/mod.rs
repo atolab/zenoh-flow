@@ -15,18 +15,20 @@
 pub mod link;
 pub mod node;
 
-use crate::{Operator, Sink, Source};
+use crate::{Operator, PortId, Sink, Source};
 use async_std::sync::Arc;
 use node::DataFlowNode;
 use petgraph::dot::{Config, Dot};
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use petgraph::stable_graph::StableGraph;
+use petgraph::visit::IntoNodeReferences;
 use petgraph::Direction;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use uhlc::HLC;
 use zenoh::ZFuture;
 
+use crate::model::connector::ZFConnectorRecord;
 use crate::runtime::loader::{load_operator, load_sink, load_source};
 use crate::runtime::message::Message;
 use crate::runtime::runners::connector::{ZenohReceiver, ZenohSender};
@@ -284,7 +286,12 @@ impl DataFlowGraph {
                 }
                 DataFlowNode::Connector(zc) => match zc.kind {
                     ZFConnectorKind::Sender => {
-                        let runner = ZenohSender::new(session.clone(), zc.resource.clone(), None);
+                        let runner = ZenohSender::new(
+                            session.clone(),
+                            zc.resource.clone(),
+                            None,
+                            hlc.clone(),
+                        );
                         let runner = Runner::Sender(runner);
                         self.operators_runners
                             .insert(zc.id.clone(), (runner, DataFlowNodeKind::Connector));
@@ -302,69 +309,154 @@ impl DataFlowGraph {
         Ok(())
     }
 
-    pub async fn make_connections(&mut self, runtime: &str) -> ZFResult<()> {
+    pub async fn make_connections(&self, runtime: &str) -> ZFResult<()> {
         // Connects the operators via our FIFOs
 
-        for (idx, up_op) in &self.operators {
+        for (idx, up_op) in self.operators.iter() {
             if up_op.get_runtime().as_ref() != runtime {
                 continue;
             }
 
             log::debug!("Creating links for:\n\t< {:?} > Operator: {:?}", idx, up_op);
 
-            let (up_runner, _) = self
-                .operators_runners
-                .get(&up_op.get_id())
-                .ok_or_else(|| ZFError::OperatorNotFound(up_op.get_id()))?;
-            // let mut up_runner = up_runner.lock().await;
-
             if self.graph.contains_node(*idx) {
                 let mut downstreams = self
                     .graph
                     .neighbors_directed(*idx, Direction::Outgoing)
                     .detach();
-                while let Some((down_edge_index, down_node_index)) = downstreams.next(&self.graph) {
-                    let (_link_index, _down_link) = self
-                        .links
-                        .iter()
-                        .find(|&(edge_index, _)| *edge_index == down_edge_index)
-                        .ok_or_else(|| ZFError::OperatorNotFound(up_op.get_id()))?;
+                while let Some((_, down_node_index)) = downstreams.next(&self.graph) {
+                    let (_, destination_op) = self
+                        .graph
+                        .node_references()
+                        .into_iter()
+                        .find(|(n, _)| n == &down_node_index)
+                        .ok_or(ZFError::GenericError)?; //this should be something like destination not found.
 
-                    let (link_id_from, link_id_to) = match self.graph.edge_weight(down_edge_index) {
-                        Some(w) => w,
-                        None => return Err(ZFError::GenericError),
-                    };
-
-                    let down_op = match self
-                        .operators
-                        .iter()
-                        .find(|&(idx, _)| *idx == down_node_index)
-                    {
-                        Some((_, op)) => op,
-                        None => panic!("To not found"),
-                    };
-
-                    let (down_runner, _) = self
-                        .operators_runners
-                        .get(&down_op.get_id())
-                        .ok_or_else(|| ZFError::OperatorNotFound(down_op.get_id()))?;
-
-                    log::debug!(
-                        "\t Creating link between {:?} -> {:?}: {:?} -> {:?}",
-                        idx,
-                        down_node_index,
-                        link_id_from,
-                        link_id_to,
-                    );
-                    let (tx, rx) =
-                        link::<Message>(None, String::from(link_id_from), String::from(link_id_to));
-
-                    up_runner.add_output(tx).await?;
-                    down_runner.add_input(rx).await?;
+                    let destination_id = destination_op.get_id();
+                    log::debug!("Creating link {:?} => {:?}", up_op.get_id(), destination_id);
+                    self.add_connection(up_op.get_id(), destination_id).await?;
                 }
             }
         }
         Ok(())
+    }
+
+    async fn add_connection(
+        &self,
+        source_id: OperatorId,
+        destination_id: OperatorId,
+    ) -> ZFResult<()> {
+        let (sid, _) = self
+            .operators
+            .iter()
+            .find(|op| op.1.get_id() == source_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(source_id.clone()))?;
+
+        let (did, _) = self
+            .operators
+            .iter()
+            .find(|op| op.1.get_id() == destination_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(destination_id.clone()))?;
+
+        let (up_runner, _) = self
+            .operators_runners
+            .get(&source_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(source_id.clone()))?;
+
+        if self.graph.contains_node(*sid) {
+            let edge_id = self
+                .graph
+                .find_edge(*sid, *did)
+                .ok_or(ZFError::GenericError)?; // Link not found, for some reason.
+
+            let (link_id_from, link_id_to) = self
+                .graph
+                .edge_weight(edge_id)
+                .ok_or(ZFError::GenericError)?; // Link not found, for some reason.
+
+            let (down_runner, _) = self
+                .operators_runners
+                .get(&destination_id)
+                .ok_or(ZFError::OperatorNotFound(destination_id))?;
+
+            log::debug!(
+                "\t Creating link between {:?} -> {:?}: {:?} -> {:?}",
+                sid,
+                edge_id,
+                link_id_from,
+                link_id_to,
+            );
+            let (tx, rx) =
+                link::<Message>(None, String::from(link_id_from), String::from(link_id_to));
+
+            up_runner.add_output(tx).await?;
+            down_runner.add_input(rx).await?;
+            return Ok(());
+        }
+        Err(ZFError::OperatorNotFound(source_id))
+    }
+
+    pub async fn add_logger(
+        &mut self,
+        node: OperatorId,
+        port: PortId,
+        res_name: String,
+        runtime: String,
+    ) -> ZFResult<OperatorId> {
+        let session = Arc::new(zenoh::net::open(zenoh::net::config::peer()).wait()?);
+        let hlc = Arc::new(uhlc::HLC::default());
+
+        let logger_id = format!("logger-{}-{}", node, port);
+
+        let (_, node_info) = self
+            .operators
+            .iter()
+            .find(|op| op.1.get_id() == node)
+            .ok_or_else(|| ZFError::OperatorNotFound(node.clone()))?;
+
+        let port_type = node_info.get_output_type(port.to_string())?;
+
+        let recorder = ZFConnectorRecord {
+            kind: ZFConnectorKind::Sender,
+            id: logger_id.clone().into(),
+            resource: res_name.clone(),
+            link_id: PortDescriptor {
+                port_id: port.to_string(),
+                port_type: port_type.to_string(),
+            },
+            runtime: runtime.into(),
+        };
+
+        self.operators.push((
+            self.graph
+                .add_node(DataFlowNode::Connector(recorder.clone())),
+            DataFlowNode::Connector(recorder.clone()),
+        ));
+
+        let runner = ZenohSender::new(session.clone(), res_name.clone(), None, hlc.clone());
+        runner.start_recording().await?;
+
+        let runner = Runner::Sender(runner);
+        self.operators_runners.insert(
+            logger_id.clone().into(),
+            (runner, DataFlowNodeKind::Connector),
+        );
+
+        let from_port_descriptor = LinkFromDescriptor {
+            component: node.clone(),
+            output: port.to_string(),
+        };
+
+        let to_port_descriptor = LinkToDescriptor {
+            component: logger_id.clone().into(),
+            input: port.to_string(),
+        };
+
+        self.add_link(from_port_descriptor, to_port_descriptor, None, None, None)?;
+
+        self.add_connection(node, logger_id.clone().into()).await?;
+
+        Ok(logger_id.into())
     }
 
     pub fn get_runner(&self, operator_id: &OperatorId) -> Option<&Runner> {

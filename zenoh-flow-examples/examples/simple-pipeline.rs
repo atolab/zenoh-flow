@@ -159,12 +159,28 @@ async fn main() {
     zf_graph.make_connections("self").await.unwrap();
 
     let mut managers = vec![];
-
-    let runners = zf_graph.get_runners();
-    for runner in &runners {
-        let m = runner.start();
-        managers.push(m)
+    {
+        let runners = zf_graph.get_runners();
+        for runner in &runners {
+            let m = runner.start();
+            managers.push(m)
+        }
     }
+
+    async_std::task::sleep(std::time::Duration::from_secs(5)).await;
+    let logger_id = zf_graph
+        .add_logger(
+            "counter-source".into(),
+            String::from(SOURCE).into(),
+            String::from("/zf/test/logging"),
+            String::from("self"),
+        )
+        .await
+        .unwrap();
+
+    let logger_runner = zf_graph.get_runner(&logger_id).unwrap();
+    let m = logger_runner.start();
+    managers.push(m);
 
     let ctrlc = CtrlC::new().expect("Unable to create Ctrl-C handler");
     let mut stream = ctrlc.enumerate().take(1);
@@ -177,7 +193,7 @@ async fn main() {
 
     futures::future::join_all(managers).await;
 
-    for runner in runners {
-        runner.clean().await.unwrap();
-    }
+    // for runner in runners {
+    //     runner.clean().await.unwrap();
+    // }
 }

@@ -51,6 +51,8 @@ pub enum ControlMessage {
     ReadyToMigrate,
     ChangeMode(u8, u128),
     Watermark,
+    RecordingStart(Timestamp),
+    RecordingStop(Timestamp),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
