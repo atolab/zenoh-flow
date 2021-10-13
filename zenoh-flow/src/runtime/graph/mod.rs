@@ -102,25 +102,20 @@ impl DataFlowGraph {
         }
 
         for l in dr.links {
-            let (from_index, from_runtime, from_type) = match operators
-                .iter()
-                .find(|&(_, o)| o.get_id() == l.from.node)
-            {
-                Some((idx, op)) => match op.has_output(l.from.output.clone()) {
-                    true => (
-                        idx,
-                        op.get_runtime(),
-                        op.get_output_type(l.from.output.clone())?,
-                    ),
-                    false => {
-                        return Err(ZFError::PortNotFound((
-                            l.from.node,
-                            l.from.output.clone(),
-                        )))
-                    }
-                },
-                None => return Err(ZFError::OperatorNotFound(l.from.node)),
-            };
+            let (from_index, from_runtime, from_type) =
+                match operators.iter().find(|&(_, o)| o.get_id() == l.from.node) {
+                    Some((idx, op)) => match op.has_output(l.from.output.clone()) {
+                        true => (
+                            idx,
+                            op.get_runtime(),
+                            op.get_output_type(l.from.output.clone())?,
+                        ),
+                        false => {
+                            return Err(ZFError::PortNotFound((l.from.node, l.from.output.clone())))
+                        }
+                    },
+                    None => return Err(ZFError::OperatorNotFound(l.from.node)),
+                };
 
             let (to_index, to_runtime, to_type) = match operators
                 .iter()
@@ -132,9 +127,7 @@ impl DataFlowGraph {
                         op.get_runtime(),
                         op.get_input_type(l.to.input.clone())?,
                     ),
-                    false => {
-                        return Err(ZFError::PortNotFound((l.to.node, l.to.input.clone())))
-                    }
+                    false => return Err(ZFError::PortNotFound((l.to.node, l.to.input.clone()))),
                 },
                 None => return Err(ZFError::OperatorNotFound(l.to.node)),
             };
