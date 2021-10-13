@@ -104,7 +104,7 @@ impl DataFlowGraph {
         for l in dr.links {
             let (from_index, from_runtime, from_type) = match operators
                 .iter()
-                .find(|&(_, o)| o.get_id() == l.from.component)
+                .find(|&(_, o)| o.get_id() == l.from.node)
             {
                 Some((idx, op)) => match op.has_output(l.from.output.clone()) {
                     true => (
@@ -114,17 +114,17 @@ impl DataFlowGraph {
                     ),
                     false => {
                         return Err(ZFError::PortNotFound((
-                            l.from.component,
+                            l.from.node,
                             l.from.output.clone(),
                         )))
                     }
                 },
-                None => return Err(ZFError::OperatorNotFound(l.from.component)),
+                None => return Err(ZFError::OperatorNotFound(l.from.node)),
             };
 
             let (to_index, to_runtime, to_type) = match operators
                 .iter()
-                .find(|&(_, o)| o.get_id() == l.to.component)
+                .find(|&(_, o)| o.get_id() == l.to.node)
             {
                 Some((idx, op)) => match op.has_input(l.to.input.clone()) {
                     true => (
@@ -133,10 +133,10 @@ impl DataFlowGraph {
                         op.get_input_type(l.to.input.clone())?,
                     ),
                     false => {
-                        return Err(ZFError::PortNotFound((l.to.component, l.to.input.clone())))
+                        return Err(ZFError::PortNotFound((l.to.node, l.to.input.clone())))
                     }
                 },
-                None => return Err(ZFError::OperatorNotFound(l.to.component)),
+                None => return Err(ZFError::OperatorNotFound(l.to.node)),
             };
 
             if to_type != from_type {
@@ -546,12 +546,12 @@ impl DataFlowGraph {
         );
 
         let from_port_descriptor = LinkFromDescriptor {
-            component: node.clone(),
+            node: node.clone(),
             output: port.to_string(),
         };
 
         let to_port_descriptor = LinkToDescriptor {
-            component: logger_id.clone().into(),
+            node: logger_id.clone().into(),
             input: port.to_string(),
         };
 

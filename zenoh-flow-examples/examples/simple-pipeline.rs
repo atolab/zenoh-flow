@@ -23,8 +23,7 @@ use zenoh_flow::async_std::sync::Arc;
 use zenoh_flow::model::link::{LinkFromDescriptor, LinkToDescriptor};
 use zenoh_flow::runtime::RuntimeContext;
 use zenoh_flow::{
-    default_input_rule, default_output_rule, Component, Context, InputRule, OutputRule, PortId,
-    SerDeData, Sink, Source,
+    default_input_rule, default_output_rule, Context, Node, PortId, SerDeData, Sink, Source,
 };
 use zenoh_flow::{model::link::PortDescriptor, zf_data, zf_empty_state};
 use zenoh_flow::{Context, Node, SerDeData, Sink, Source};
