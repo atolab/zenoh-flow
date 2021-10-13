@@ -24,9 +24,7 @@ use petgraph::stable_graph::StableGraph;
 use petgraph::visit::IntoNodeReferences;
 use petgraph::Direction;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use uhlc::HLC;
-use zenoh::ZFuture;
 
 use crate::model::connector::ZFConnectorRecord;
 use crate::runtime::loader::{load_operator, load_sink, load_source};
@@ -42,6 +40,7 @@ use crate::{
     model::node::{OperatorRecord, SinkRecord, SourceRecord},
     runtime::graph::link::link,
     runtime::graph::node::DataFlowNodeKind,
+    runtime::RuntimeContext,
     types::{OperatorId, ZFError, ZFResult},
     utils::hlc::PeriodicHLC,
 };
@@ -54,16 +53,11 @@ pub struct DataFlowGraph {
     pub links: Vec<(EdgeIndex, LinkDescriptor)>,
     pub graph: StableGraph<DataFlowNode, (String, String)>,
     pub operators_runners: HashMap<OperatorId, (Runner, DataFlowNodeKind)>,
-}
-
-impl Default for DataFlowGraph {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub ctx: RuntimeContext,
 }
 
 impl DataFlowGraph {
-    pub fn new() -> Self {
+    pub fn new(ctx: RuntimeContext) -> Self {
         Self {
             uuid: Uuid::nil(),
             flow: "".to_string(),
@@ -71,7 +65,116 @@ impl DataFlowGraph {
             links: Vec::new(),
             graph: StableGraph::<DataFlowNode, (String, String)>::new(),
             operators_runners: HashMap::new(),
+            ctx,
         }
+    }
+
+    pub fn from_record(dr: DataFlowRecord, ctx: RuntimeContext) -> ZFResult<Self> {
+        let mut graph = StableGraph::<DataFlowNode, (String, String)>::new();
+        let mut operators = Vec::new();
+        let mut links: Vec<(EdgeIndex, LinkDescriptor)> = Vec::new();
+        for o in dr.operators {
+            operators.push((
+                graph.add_node(DataFlowNode::Operator(o.clone())),
+                DataFlowNode::Operator(o),
+            ));
+        }
+
+        for o in dr.sources {
+            operators.push((
+                graph.add_node(DataFlowNode::Source(o.clone())),
+                DataFlowNode::Source(o),
+            ));
+        }
+
+        for o in dr.sinks {
+            operators.push((
+                graph.add_node(DataFlowNode::Sink(o.clone())),
+                DataFlowNode::Sink(o),
+            ));
+        }
+
+        for o in dr.connectors {
+            operators.push((
+                graph.add_node(DataFlowNode::Connector(o.clone())),
+                DataFlowNode::Connector(o),
+            ));
+        }
+
+        for l in dr.links {
+            let (from_index, from_runtime, from_type) = match operators
+                .iter()
+                .find(|&(_, o)| o.get_id() == l.from.component)
+            {
+                Some((idx, op)) => match op.has_output(l.from.output.clone()) {
+                    true => (
+                        idx,
+                        op.get_runtime(),
+                        op.get_output_type(l.from.output.clone())?,
+                    ),
+                    false => {
+                        return Err(ZFError::PortNotFound((
+                            l.from.component,
+                            l.from.output.clone(),
+                        )))
+                    }
+                },
+                None => return Err(ZFError::OperatorNotFound(l.from.component)),
+            };
+
+            let (to_index, to_runtime, to_type) = match operators
+                .iter()
+                .find(|&(_, o)| o.get_id() == l.to.component)
+            {
+                Some((idx, op)) => match op.has_input(l.to.input.clone()) {
+                    true => (
+                        idx,
+                        op.get_runtime(),
+                        op.get_input_type(l.to.input.clone())?,
+                    ),
+                    false => {
+                        return Err(ZFError::PortNotFound((l.to.component, l.to.input.clone())))
+                    }
+                },
+                None => return Err(ZFError::OperatorNotFound(l.to.component)),
+            };
+
+            if to_type != from_type {
+                return Err(ZFError::PortTypeNotMatching((
+                    to_type.to_string(),
+                    from_type.to_string(),
+                )));
+            }
+
+            if from_runtime == to_runtime {
+                log::debug!("[Graph instantiation] [same runtime] Pushing link: {:?}", l);
+                links.push((
+                    graph.add_edge(
+                        *from_index,
+                        *to_index,
+                        (l.from.output.clone(), l.to.input.clone()),
+                    ),
+                    l.clone(),
+                ));
+            } else {
+                log::debug!(
+                    "[Graph instantiation] Link on different runtime detected: {:?}, this should not happen! :P",
+                    l
+                );
+
+                // We do nothing in this case... the links are already well created when creating the record, so this should NEVER happen
+            }
+        }
+
+        Ok(Self {
+            uuid: dr.uuid,
+            flow: dr.flow,
+            operators,
+            links,
+            graph,
+            operators_runners: HashMap::new(),
+            ctx,
+        })
     }
 
     pub fn set_name(&mut self, name: String) {
@@ -231,12 +334,9 @@ impl DataFlowGraph {
         )))
     }
 
-    pub fn load(&mut self, runtime: &str) -> ZFResult<()> {
-        let session = Arc::new(zenoh::net::open(zenoh::net::config::peer()).wait()?);
-        let hlc = Arc::new(uhlc::HLC::default());
-
+    pub fn load(&mut self) -> ZFResult<()> {
         for (_, op) in &self.operators {
-            if op.get_runtime().as_ref() != runtime {
+            if op.get_runtime() != self.ctx.runtime_name {
                 continue;
             }
 
@@ -244,7 +344,8 @@ impl DataFlowGraph {
                 DataFlowNode::Operator(inner) => {
                     match &inner.uri {
                         Some(uri) => {
-                            let runner = load_operator(inner.clone(), hlc.clone(), uri.clone())?;
+                            let runner =
+                                load_operator(inner.clone(), self.ctx.hlc.clone(), uri.clone())?;
                             let runner = Runner::Operator(runner);
                             self.operators_runners
                                 .insert(inner.id.clone(), (runner, DataFlowNodeKind::Operator));
@@ -259,7 +360,7 @@ impl DataFlowGraph {
                         Some(uri) => {
                             let runner = load_source(
                                 inner.clone(),
-                                PeriodicHLC::new(hlc.clone(), inner.period.clone()),
+                                PeriodicHLC::new(self.ctx.hlc.clone(), inner.period.clone()),
                                 uri.clone(),
                             )?;
                             let runner = Runner::Source(runner);
@@ -287,10 +388,10 @@ impl DataFlowGraph {
                 DataFlowNode::Connector(zc) => match zc.kind {
                     ZFConnectorKind::Sender => {
                         let runner = ZenohSender::new(
-                            session.clone(),
+                            self.ctx.session.clone(),
                             zc.resource.clone(),
                             None,
-                            hlc.clone(),
+                            self.ctx.hlc.clone(),
                         );
                         let runner = Runner::Sender(runner);
                         self.operators_runners
@@ -298,7 +399,8 @@ impl DataFlowGraph {
                     }
 
                     ZFConnectorKind::Receiver => {
-                        let runner = ZenohReceiver::new(session.clone(), zc.resource.clone(), None);
+                        let runner =
+                            ZenohReceiver::new(self.ctx.session.clone(), zc.resource.clone(), None);
                         let runner = Runner::Receiver(runner);
                         self.operators_runners
                             .insert(zc.id.clone(), (runner, DataFlowNodeKind::Connector));
@@ -309,11 +411,11 @@ impl DataFlowGraph {
         Ok(())
     }
 
-    pub async fn make_connections(&self, runtime: &str) -> ZFResult<()> {
+    pub async fn make_connections(&self) -> ZFResult<()> {
         // Connects the operators via our FIFOs
 
         for (idx, up_op) in self.operators.iter() {
-            if up_op.get_runtime().as_ref() != runtime {
+            if up_op.get_runtime() != self.ctx.runtime_name {
                 continue;
             }
 
@@ -401,11 +503,7 @@ impl DataFlowGraph {
         node: OperatorId,
         port: PortId,
         res_name: String,
-        runtime: String,
     ) -> ZFResult<OperatorId> {
-        let session = Arc::new(zenoh::net::open(zenoh::net::config::peer()).wait()?);
-        let hlc = Arc::new(uhlc::HLC::default());
-
         let logger_id = format!("logger-{}-{}", node, port);
 
         let (_, node_info) = self
@@ -424,7 +522,7 @@ impl DataFlowGraph {
                 port_id: port.to_string(),
                 port_type: port_type.to_string(),
             },
-            runtime: runtime.into(),
+            runtime: self.ctx.runtime_name.clone(),
         };
 
         self.operators.push((
@@ -433,7 +531,12 @@ impl DataFlowGraph {
             DataFlowNode::Connector(recorder.clone()),
         ));
 
-        let runner = ZenohSender::new(session.clone(), res_name.clone(), None, hlc.clone());
+        let runner = ZenohSender::new(
+            self.ctx.session.clone(),
+            res_name.clone(),
+            None,
+            self.ctx.hlc.clone(),
+        );
         runner.start_recording().await?;
 
         let runner = Runner::Sender(runner);
@@ -514,117 +617,5 @@ impl DataFlowGraph {
             }
         }
         runners
-    }
-}
-
-impl TryFrom<DataFlowRecord> for DataFlowGraph {
-    type Error = ZFError;
-
-    fn try_from(dr: DataFlowRecord) -> Result<Self, Self::Error> {
-        let mut graph = StableGraph::<DataFlowNode, (String, String)>::new();
-        let mut operators = Vec::new();
-        let mut links: Vec<(EdgeIndex, LinkDescriptor)> = Vec::new();
-        for o in dr.operators {
-            operators.push((
-                graph.add_node(DataFlowNode::Operator(o.clone())),
-                DataFlowNode::Operator(o),
-            ));
-        }
-
-        for o in dr.sources {
-            operators.push((
-                graph.add_node(DataFlowNode::Source(o.clone())),
-                DataFlowNode::Source(o),
-            ));
-        }
-
-        for o in dr.sinks {
-            operators.push((
-                graph.add_node(DataFlowNode::Sink(o.clone())),
-                DataFlowNode::Sink(o),
-            ));
-        }
-
-        for o in dr.connectors {
-            operators.push((
-                graph.add_node(DataFlowNode::Connector(o.clone())),
-                DataFlowNode::Connector(o),
-            ));
-        }
-
-        for l in dr.links {
-            // First check if the LinkId are the same
-            // if l.from.output != l.to.input {
-            //     return Err(ZFError::PortIdNotMatching((
-            //         l.from.output.clone(),
-            //         l.to.input,
-            //     )));
-            // }
-
-            let (from_index, from_runtime, from_type) =
-                match operators.iter().find(|&(_, o)| o.get_id() == l.from.node) {
-                    Some((idx, op)) => match op.has_output(l.from.output.clone()) {
-                        true => (
-                            idx,
-                            op.get_runtime(),
-                            op.get_output_type(l.from.output.clone())?,
-                        ),
-                        false => {
-                            return Err(ZFError::PortNotFound((l.from.node, l.from.output.clone())))
-                        }
-                    },
-                    None => return Err(ZFError::OperatorNotFound(l.from.node)),
-                };
-
-            let (to_index, to_runtime, to_type) = match operators
-                .iter()
-                .find(|&(_, o)| o.get_id() == l.to.node)
-            {
-                Some((idx, op)) => match op.has_input(l.to.input.clone()) {
-                    true => (
-                        idx,
-                        op.get_runtime(),
-                        op.get_input_type(l.to.input.clone())?,
-                    ),
-                    false => return Err(ZFError::PortNotFound((l.to.node, l.to.input.clone()))),
-                },
-                None => return Err(ZFError::OperatorNotFound(l.to.node)),
-            };
-
-            if to_type != from_type {
-                return Err(ZFError::PortTypeNotMatching((
-                    to_type.to_string(),
-                    from_type.to_string(),
-                )));
-            }
-
-            if from_runtime == to_runtime {
-                log::debug!("[Graph instantiation] [same runtime] Pushing link: {:?}", l);
-                links.push((
-                    graph.add_edge(
-                        *from_index,
-                        *to_index,
-                        (l.from.output.clone(), l.to.input.clone()),
-                    ),
-                    l.clone(),
-                ));
-            } else {
-                log::debug!(
-                    "[Graph instantiation] Link on different runtime detected: {:?}, this should not happen! :P",
-                    l
-                );
-
-                // We do nothing in this case... the links are already well created when creating the record, so this should NEVER happen
-            }
-        }
-
-        Ok(Self {
-            uuid: dr.uuid,
-            flow: dr.flow,
-            operators,
-            links,
-            graph,
-            operators_runners: HashMap::new(),
-        })
     }
 }
