@@ -503,6 +503,7 @@ impl Runtime for Daemon {
                 for (i, m) in instance.1.iter().enumerate() {
                     match m.get_kind() {
                         RunnerKind::Source => continue,
+                        RunnerKind::Replay => continue,
                         RunnerKind::Sink => {
                             m.kill().await?;
                             to_be_removed.push(i);
@@ -561,7 +562,7 @@ impl Runtime for Daemon {
 
                 for (i, m) in instance.1.iter().enumerate() {
                     match m.get_kind() {
-                        RunnerKind::Source => {
+                        RunnerKind::Source | RunnerKind::Replay => {
                             m.kill().await?;
                             to_be_removed.push(i);
                             rt_status.running_sources -= 1;

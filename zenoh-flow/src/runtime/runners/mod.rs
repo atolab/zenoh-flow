@@ -19,16 +19,16 @@ pub mod source;
 
 use crate::runtime::graph::link::{LinkReceiver, LinkSender};
 use crate::runtime::message::Message;
-use crate::runtime::runners::connector::{ZenohReceiver, ZenohSender};
+use crate::runtime::runners::connector::{ZenohReceiver, ZenohReplay, ZenohSender};
 use crate::runtime::runners::operator::OperatorRunner;
 use crate::runtime::runners::sink::SinkRunner;
 use crate::runtime::runners::source::SourceRunner;
 use crate::types::ZFResult;
-use crate::ZFError;
+use crate::{OperatorId, PortId, ZFError};
 
 use crate::async_std::prelude::*;
 use crate::async_std::{
-    channel::{bounded, Receiver, RecvError, Sender},
+    channel::{bounded, Receiver, Sender},
     task::JoinHandle,
 };
 
@@ -42,6 +42,7 @@ pub enum RunnerKind {
     Operator,
     Sink,
     Connector,
+    Replay,
 }
 
 pub struct RunnerManager {
@@ -83,7 +84,7 @@ impl Future for RunnerManager {
 pub enum RunAction {
     RestartRun(Option<ZFError>),
     Stop,
-    StopError(RecvError),
+    StopError(ZFError),
 }
 
 #[derive(Clone)]
@@ -93,56 +94,120 @@ pub enum Runner {
     Sink(SinkRunner),
     Sender(ZenohSender),
     Receiver(ZenohReceiver),
+    Replay(ZenohReplay),
+}
+
+impl std::fmt::Debug for Runner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Runner")
+            .field("kind", &self.get_kind())
+            .finish()
+    }
 }
 
 impl Runner {
-    pub async fn run(&self) -> ZFResult<()> {
+    pub async fn run(&self) -> ZFResult<RunAction> {
         match self {
             Runner::Operator(runner) => runner.run().await,
             Runner::Source(runner) => runner.run().await,
             Runner::Sink(runner) => runner.run().await,
             Runner::Sender(runner) => runner.run().await,
             Runner::Receiver(runner) => runner.run().await,
+            Runner::Replay(runner) => runner.run().await,
         }
     }
 
-    pub async fn add_input(&self, input: LinkReceiver<Message>) -> ZFResult<()> {
+    pub async fn add_input(
+        &self,
+        input: LinkReceiver<Message>,
+        from_id: OperatorId,
+    ) -> ZFResult<()> {
         log::trace!("add_input({:?})", input);
         match self {
             Runner::Operator(runner) => {
-                runner.add_input(input).await;
+                runner.add_input(input, from_id).await;
                 Ok(())
             }
             Runner::Source(_) => Err(ZFError::SourceDoNotHaveInputs),
             Runner::Sink(runner) => {
-                runner.add_input(input).await;
+                runner.add_input(input, from_id).await;
                 Ok(())
             }
             Runner::Sender(runner) => {
-                runner.add_input(input).await;
+                runner.add_input(input, from_id).await;
                 Ok(())
             }
             Runner::Receiver(_) => Err(ZFError::ReceiverDoNotHaveInputs),
+            Runner::Replay(_) => Err(ZFError::ReceiverDoNotHaveInputs),
         }
     }
 
-    pub async fn add_output(&self, output: LinkSender<Message>) -> ZFResult<()> {
+    pub async fn add_output(&self, output: LinkSender<Message>, to_id: OperatorId) -> ZFResult<()> {
         log::trace!("add_output({:?})", output);
         match self {
             Runner::Operator(runner) => {
-                runner.add_output(output).await;
+                runner.add_output(output, to_id).await;
                 Ok(())
             }
             Runner::Source(runner) => {
-                runner.add_output(output).await;
+                runner.add_output(output, to_id).await;
                 Ok(())
             }
             Runner::Sink(_) => Err(ZFError::SinkDoNotHaveOutputs),
             Runner::Sender(_) => Err(ZFError::SenderDoNotHaveOutputs),
             Runner::Receiver(runner) => {
-                runner.add_output(output).await;
+                runner.add_output(output, to_id).await;
                 Ok(())
             }
+            Runner::Replay(runner) => {
+                runner.add_output(output, to_id).await;
+                Ok(())
+            }
+        }
+    }
+
+    pub async fn remove_output(&self, port_id: PortId, to_id: OperatorId) -> ZFResult<()> {
+        log::trace!("remove_output({:?},{:?})", port_id, to_id);
+        match self {
+            Runner::Operator(runner) => {
+                runner.remove_output(port_id, to_id).await;
+                Ok(())
+            }
+            Runner::Source(runner) => {
+                runner.remove_output(port_id, to_id).await;
+                Ok(())
+            }
+            Runner::Sink(_) => Err(ZFError::SinkDoNotHaveOutputs),
+            Runner::Sender(_) => Err(ZFError::SenderDoNotHaveOutputs),
+            Runner::Receiver(runner) => {
+                runner.remove_output(to_id).await;
+                Ok(())
+            }
+            Runner::Replay(runner) => {
+                runner.remove_output(to_id).await;
+                Ok(())
+            }
+        }
+    }
+
+    pub async fn remove_input(&self, port_id: PortId, from_id: OperatorId) -> ZFResult<()> {
+        log::trace!("remove_input({:?},{:?})", port_id, from_id);
+        match self {
+            Runner::Operator(runner) => {
+                runner.remove_input(port_id, from_id).await;
+                Ok(())
+            }
+            Runner::Source(_) => Err(ZFError::SourceDoNotHaveInputs),
+            Runner::Sink(runner) => {
+                runner.remove_input(port_id, from_id).await;
+                Ok(())
+            }
+            Runner::Sender(runner) => {
+                runner.remove_input(from_id).await;
+                Ok(())
+            }
+            Runner::Receiver(_) => Err(ZFError::ReceiverDoNotHaveInputs),
+            Runner::Replay(_) => Err(ZFError::ReceiverDoNotHaveInputs),
         }
     }
 
@@ -153,6 +218,7 @@ impl Runner {
             Runner::Sink(runner) => runner.clean().await,
             Runner::Sender(_) => Err(ZFError::Unimplemented),
             Runner::Receiver(_) => Err(ZFError::Unimplemented),
+            Runner::Replay(_) => Err(ZFError::Unimplemented),
         }
     }
 
@@ -168,14 +234,14 @@ impl Runner {
         loop {
             let run = async {
                 match self.run().await {
-                    Ok(_) => RunAction::RestartRun(None),
+                    Ok(run_action) => run_action,
                     Err(e) => RunAction::RestartRun(Some(e)),
                 }
             };
             let stopper = async {
                 match stop.recv().await {
                     Ok(_) => RunAction::Stop,
-                    Err(e) => RunAction::StopError(e),
+                    Err(e) => RunAction::StopError(e.into()),
                 }
             };
 
@@ -190,7 +256,7 @@ impl Runner {
                 }
                 RunAction::StopError(e) => {
                     log::error!("The stopper recv got an error: {}, exiting...", e);
-                    break Err(e.into());
+                    break Err(e);
                 }
             }
         }
@@ -203,6 +269,7 @@ impl Runner {
             Runner::Sink(_) => RunnerKind::Sink,
             Runner::Sender(_) => RunnerKind::Connector,
             Runner::Receiver(_) => RunnerKind::Connector,
+            Runner::Replay(_) => RunnerKind::Replay,
         }
     }
 }

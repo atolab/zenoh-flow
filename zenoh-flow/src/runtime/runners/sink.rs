@@ -16,10 +16,12 @@ use crate::async_std::sync::{Arc, RwLock};
 use crate::model::node::SinkRecord;
 use crate::runtime::graph::link::LinkReceiver;
 use crate::runtime::message::{DataMessage, Message};
+use crate::runtime::runners::RunAction;
 use crate::types::ZFResult;
-use crate::{Context, Sink, State};
+use crate::{Context, OperatorId, PortId, Sink, State};
 use futures::future;
 use libloading::Library;
+use std::collections::HashMap;
 
 pub type SinkRegisterFn = fn() -> ZFResult<Arc<dyn Sink>>;
 
@@ -27,20 +29,6 @@ pub struct SinkDeclaration {
     pub rustc_version: &'static str,
     pub core_version: &'static str,
     pub register: SinkRegisterFn,
-}
-
-pub struct SinkRunnerInner {
-    pub inputs: Vec<LinkReceiver<Message>>,
-    pub state: Box<dyn State>,
-}
-
-impl SinkRunnerInner {
-    pub fn new(state: Box<dyn State>) -> Self {
-        Self {
-            inputs: vec![],
-            state,
-        }
-    }
 }
 
 // Do not reorder the fields in this struct.
@@ -52,7 +40,7 @@ impl SinkRunnerInner {
 pub struct SinkRunner {
     pub record: Arc<SinkRecord>,
     pub state: Arc<RwLock<Box<dyn State>>>,
-    pub inputs: Arc<RwLock<Vec<LinkReceiver<Message>>>>,
+    pub inputs: Arc<RwLock<HashMap<OperatorId, LinkReceiver<Message>>>>,
     pub sink: Arc<dyn Sink>,
     pub lib: Arc<Option<Library>>,
 }
@@ -63,14 +51,35 @@ impl SinkRunner {
         Self {
             record: Arc::new(record),
             state: Arc::new(RwLock::new(state)),
-            inputs: Arc::new(RwLock::new(vec![])),
+            inputs: Arc::new(RwLock::new(HashMap::new())),
             sink,
             lib: Arc::new(lib),
         }
     }
 
-    pub async fn add_input(&self, input: LinkReceiver<Message>) {
-        self.inputs.write().await.push(input);
+    pub async fn add_input(&self, input: LinkReceiver<Message>, from_id: OperatorId) {
+        log::trace!("add_input({:?},{:?}", input, from_id);
+        self.inputs.write().await.insert(from_id, input);
+    }
+
+    pub async fn remove_input(&self, port_id: PortId, from_id: OperatorId) {
+        log::trace!("remove_input({:?},{:?}", port_id, from_id);
+        let mut inputs = self.inputs.write().await;
+        if let Some(input) = inputs.remove(&from_id) {
+            if input.id() != port_id {
+                log::warn!(
+                    "Unable to remove link from port {:?} from node {:?}: port not found",
+                    port_id,
+                    from_id
+                );
+            }
+        } else {
+            log::warn!(
+                "Unable to remove link from port {:?} from node {:?}: from not found",
+                port_id,
+                from_id
+            );
+        }
     }
 
     pub async fn clean(&self) -> ZFResult<()> {
@@ -78,7 +87,7 @@ impl SinkRunner {
         self.sink.clean(&mut state)
     }
 
-    pub async fn run(&self) -> ZFResult<()> {
+    pub async fn run(&self) -> ZFResult<RunAction> {
         let mut context = Context::default();
 
         loop {
@@ -86,7 +95,7 @@ impl SinkRunner {
             let inputs = self.inputs.read().await;
             let mut state = self.state.write().await;
 
-            let links: Vec<_> = inputs.iter().map(|rx| rx.recv()).collect();
+            let links: Vec<_> = inputs.values().map(|rx| rx.recv()).collect();
 
             // FEAT. With the introduction of deadline, a DeadlineMissToken could be sent.
             let input: DataMessage;

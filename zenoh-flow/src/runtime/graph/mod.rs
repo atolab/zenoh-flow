@@ -46,6 +46,8 @@ use crate::{
 };
 use uuid::Uuid;
 
+use super::runners::RunnerManager;
+
 pub struct DataFlowGraph {
     pub uuid: Uuid,
     pub flow: String,
@@ -174,6 +176,30 @@ impl DataFlowGraph {
         self.flow = name;
     }
 
+    fn find_upstream(&self, from: OperatorId) -> Vec<OperatorId> {
+        self.links
+            .iter()
+            .filter_map(|(_, ld)| {
+                if ld.to.node == from {
+                    return Some(ld.from.node.clone());
+                }
+                None
+            })
+            .collect()
+    }
+
+    fn _find_downstream(&self, from: OperatorId) -> Vec<OperatorId> {
+        self.links
+            .iter()
+            .filter_map(|(_, ld)| {
+                if ld.from.node == from {
+                    return Some(ld.to.node.clone());
+                }
+                None
+            })
+            .collect()
+    }
+
     pub fn to_dot_notation(&self) -> String {
         format!(
             "{:?}",
@@ -196,7 +222,7 @@ impl DataFlowGraph {
             outputs,
             uri: None,
             configuration,
-            runtime: "self".into(),
+            runtime: self.ctx.runtime_name.clone(),
         };
         self.operators.push((
             self.graph.add_node(DataFlowNode::Operator(record.clone())),
@@ -222,7 +248,7 @@ impl DataFlowGraph {
             period: None,
             uri: None,
             configuration,
-            runtime: "self".into(),
+            runtime: self.ctx.runtime_name.clone(),
         };
         self.operators.push((
             self.graph.add_node(DataFlowNode::Source(record.clone())),
@@ -247,7 +273,7 @@ impl DataFlowGraph {
             input,
             uri: None,
             configuration,
-            runtime: "self".into(),
+            runtime: self.ctx.runtime_name.clone(),
         };
         self.operators.push((
             self.graph.add_node(DataFlowNode::Sink(record.clone())),
@@ -325,6 +351,36 @@ impl DataFlowGraph {
             String::from(from_type),
             String::from(to_type),
         )))
+    }
+
+    pub fn remove_link(
+        &mut self,
+        source_id: OperatorId,
+        destination_id: OperatorId,
+    ) -> ZFResult<()> {
+        let (sid, _) = self
+            .operators
+            .iter()
+            .find(|op| op.1.get_id() == source_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(source_id.clone()))?;
+
+        let (did, _) = self
+            .operators
+            .iter()
+            .find(|op| op.1.get_id() == destination_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(destination_id.clone()))?;
+
+        let edge_id = self
+            .graph
+            .find_edge(*sid, *did)
+            .ok_or_else(|| ZFError::LinkNotFound(source_id.clone(), destination_id.clone()))?;
+        self.graph
+            .remove_edge(edge_id)
+            .ok_or_else(|| ZFError::LinkNotFound(source_id.clone(), destination_id.clone()))?;
+
+        self.links.retain(|(eid, _)| (*eid) != edge_id);
+
+        Ok(())
     }
 
     pub fn load(&mut self) -> ZFResult<()> {
@@ -405,6 +461,7 @@ impl DataFlowGraph {
     }
 
     pub async fn make_connections(&self) -> ZFResult<()> {
+        log::trace!("make_connections(...)");
         // Connects the operators via our FIFOs
 
         for (idx, up_op) in self.operators.iter() {
@@ -472,7 +529,7 @@ impl DataFlowGraph {
             let (down_runner, _) = self
                 .operators_runners
                 .get(&destination_id)
-                .ok_or(ZFError::OperatorNotFound(destination_id))?;
+                .ok_or_else(|| ZFError::OperatorNotFound(destination_id.clone()))?;
 
             log::debug!(
                 "\t Creating link between {:?} -> {:?}: {:?} -> {:?}",
@@ -484,14 +541,73 @@ impl DataFlowGraph {
             let (tx, rx) =
                 link::<Message>(None, String::from(link_id_from), String::from(link_id_to));
 
-            up_runner.add_output(tx).await?;
-            down_runner.add_input(rx).await?;
+            up_runner.add_output(tx, destination_id).await?;
+            down_runner.add_input(rx, source_id).await?;
             return Ok(());
         }
         Err(ZFError::OperatorNotFound(source_id))
     }
 
-    pub async fn add_logger(
+    async fn remove_connection(
+        &self,
+        source_id: OperatorId,
+        destination_id: OperatorId,
+    ) -> ZFResult<()> {
+        let (sid, _) = self
+            .operators
+            .iter()
+            .find(|op| op.1.get_id() == source_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(source_id.clone()))?;
+
+        let (did, _) = self
+            .operators
+            .iter()
+            .find(|op| op.1.get_id() == destination_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(destination_id.clone()))?;
+
+        let (up_runner, _) = self
+            .operators_runners
+            .get(&source_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(source_id.clone()))?;
+
+        if self.graph.contains_node(*sid) {
+            let edge_id = self
+                .graph
+                .find_edge(*sid, *did)
+                .ok_or(ZFError::GenericError)?; // Link not found, for some reason.
+
+            let (link_id_from, link_id_to) = self
+                .graph
+                .edge_weight(edge_id)
+                .ok_or(ZFError::GenericError)?; // Link not found, for some reason.
+
+            let (down_runner, _) = self
+                .operators_runners
+                .get(&destination_id)
+                .ok_or_else(|| ZFError::OperatorNotFound(destination_id.clone()))?;
+
+            log::debug!(
+                "\t Removing link between {:?} -> {:?}: {:?} -> {:?}",
+                sid,
+                edge_id,
+                link_id_from,
+                link_id_to,
+            );
+
+            down_runner
+                .remove_input(link_id_to.to_string().into(), source_id)
+                .await?;
+
+            up_runner
+                .remove_output(link_id_from.to_string().into(), destination_id)
+                .await?;
+
+            return Ok(());
+        }
+        Err(ZFError::OperatorNotFound(source_id.clone()))
+    }
+
+    pub async fn add_logger( // Should log the whole node? i.e. all the outputs?
         &mut self,
         node: OperatorId,
         port: PortId,
@@ -553,6 +669,69 @@ impl DataFlowGraph {
         self.add_connection(node, logger_id.clone().into()).await?;
 
         Ok(logger_id.into())
+    }
+
+    pub async fn remove_logger(
+        &mut self,
+        logger_id: OperatorId,
+        manager: RunnerManager,
+    ) -> ZFResult<OperatorId> {
+        log::trace!("remove_logger({:?},..)", logger_id);
+        let (_, _node_info) = self
+            .operators
+            .iter()
+            .find(|op| op.1.get_id() == logger_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(logger_id.clone()))?;
+
+        manager.kill().await?;
+
+        let upstreams = self.find_upstream(logger_id.clone());
+        for id in upstreams {
+            self.remove_connection(id.clone(), logger_id.clone())
+                .await?;
+            self.remove_link(id, logger_id.clone())?;
+        }
+
+        let logger_runner = match self
+            .operators_runners
+            .remove(&logger_id)
+            .ok_or_else(|| {
+                log::warn!("not found in operators runners???");
+                ZFError::OperatorNotFound(logger_id.clone())
+            })?
+            .0
+        {
+            Runner::Sender(r) => Ok(r),
+            _x => {
+                log::warn!("Kind of runner is not Sender?? {:?}", _x);
+                Err(ZFError::OperatorNotFound(logger_id.clone()))
+            }
+        }?;
+
+        logger_runner.stop_recording().await?;
+
+        Ok(logger_id)
+    }
+
+
+    pub async fn add_replay( // Should replay the whole node? i.e. replacing it and all the upstream ones?
+        &mut self,
+        node_id: OperatorId,
+        port_id : PortId,
+        res_name: String,
+    ) -> ZFResult<OperatorId> {
+        let replay_id = format!("replay-{}-{}", node_id, port_id);
+
+        let (_, node_info) = self
+            .operators
+            .iter()
+            .find(|op| op.1.get_id() == node_id)
+            .ok_or_else(|| ZFError::OperatorNotFound(node_id.clone()))?;
+
+        let port_type = node_info.get_output_type(port_id.to_string())?;
+
+        Err(ZFError::Unimplemented)
+
     }
 
     pub fn get_runner(&self, operator_id: &OperatorId) -> Option<&Runner> {

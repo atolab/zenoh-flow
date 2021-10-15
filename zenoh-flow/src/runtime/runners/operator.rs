@@ -16,8 +16,9 @@ use crate::async_std::sync::{Arc, RwLock};
 use crate::model::node::OperatorRecord;
 use crate::runtime::graph::link::{LinkReceiver, LinkSender};
 use crate::runtime::message::Message;
+use crate::runtime::runners::RunAction;
 use crate::types::{Token, ZFResult};
-use crate::{Context, Operator, PortId, State};
+use crate::{Context, Operator, OperatorId, PortId, State};
 use futures::future;
 use libloading::Library;
 use std::collections::HashMap;
@@ -32,8 +33,8 @@ pub struct OperatorDeclaration {
 }
 
 pub type OperatorIO = (
-    Vec<LinkReceiver<Message>>,
-    HashMap<PortId, Vec<LinkSender<Message>>>,
+    HashMap<OperatorId, LinkReceiver<Message>>,
+    HashMap<PortId, HashMap<OperatorId, LinkSender<Message>>>,
 );
 
 // Do not reorder the fields in this struct.
@@ -62,24 +63,65 @@ impl OperatorRunner {
         Self {
             record: Arc::new(record),
             hlc,
-            io: Arc::new(RwLock::new((vec![], HashMap::new()))),
+            io: Arc::new(RwLock::new((HashMap::new(), HashMap::new()))),
             state: Arc::new(RwLock::new(state)),
             operator,
             lib: Arc::new(lib),
         }
     }
 
-    pub async fn add_input(&self, input: LinkReceiver<Message>) {
-        self.io.write().await.0.push(input);
+    pub async fn add_input(&self, input: LinkReceiver<Message>, from_id: OperatorId) {
+        self.io.write().await.0.insert(from_id, input);
     }
 
-    pub async fn add_output(&self, output: LinkSender<Message>) {
+    pub async fn remove_input(&self, port_id: PortId, from_id: OperatorId) {
         let mut guard = self.io.write().await;
-        let key = output.id();
-        if let Some(links) = guard.1.get_mut(key.as_ref()) {
-            links.push(output);
+        if let Some(input) = guard.0.remove(&from_id) {
+            if input.id() != port_id {
+                log::warn!(
+                    "Unable to remove link from port {:?} from node {:?}: port not found",
+                    port_id,
+                    from_id
+                );
+            }
         } else {
-            guard.1.insert(key, vec![output]);
+            log::warn!(
+                "Unable to remove link from port {:?} from node {:?}: from not found",
+                port_id,
+                from_id
+            );
+        }
+    }
+
+    pub async fn add_output(&self, output: LinkSender<Message>, to_id: OperatorId) {
+        let mut guard = self.io.write().await;
+
+        let key = output.id();
+        if let Some(links) = guard.1.get_mut(&key) {
+            links.insert(to_id, output);
+        } else {
+            let mut link = HashMap::new();
+            link.insert(to_id, output);
+            guard.1.insert(key, link);
+        }
+    }
+
+    pub async fn remove_output(&self, port_id: PortId, to_id: OperatorId) {
+        let mut guard = self.io.write().await;
+        if let Some(links) = guard.1.get_mut(&port_id) {
+            if links.remove(&to_id).is_none() {
+                log::warn!(
+                    "Unable to remove link from port {:?} to node {:?}: to not found",
+                    port_id,
+                    to_id
+                );
+            }
+        } else {
+            log::warn!(
+                "Unable to remove link from port {:?} to node {:?}: port not found",
+                port_id,
+                to_id
+            );
         }
     }
 
@@ -88,7 +130,7 @@ impl OperatorRunner {
         self.operator.clean(&mut state)
     }
 
-    pub async fn run(&self) -> ZFResult<()> {
+    pub async fn run(&self) -> ZFResult<RunAction> {
         let mut context = Context::default();
 
         loop {
@@ -100,13 +142,13 @@ impl OperatorRunner {
             // we should start from an HashMap with all PortId and not ready tokens
             let mut msgs: HashMap<PortId, Token> = HashMap::new();
 
-            for i in io.0.iter() {
+            for (_, i) in io.0.iter() {
                 msgs.insert(i.id(), Token::NotReady);
             }
 
             let mut futs = vec![];
-            for rx in io.0.iter() {
-                futs.push(rx.recv()); // this should be peek(), but both requires mut
+            for rx in io.0.values() {
+                futs.push(rx.recv()); // this should be peek()
             }
 
             // Input Rules
@@ -163,19 +205,24 @@ impl OperatorRunner {
             // Send to Links
             for (id, output) in outputs {
                 // getting link
-                log::debug!("id: {:?}, message: {:?}", id, output);
+                log::trace!("id: {:?}, message: {:?}", id, output);
                 if let Some(links) = io.1.get(&id) {
                     let zf_message = Arc::new(Message::from_node_output(output, timestamp));
 
-                    for tx in links {
-                        log::debug!("Sending on: {:?}", tx);
-                        tx.send(zf_message.clone()).await?;
+                    for (to, tx) in links {
+                        log::trace!("Sending to {:?} on: {:?}", to, tx);
+                        match tx.send(zf_message.clone()).await {
+                            Ok(_) => (),
+                            Err(e) => {
+                                log::warn!("Error when sending to {:?} on {:?}: {:?}", to, tx, e)
+                            }
+                        }
                     }
                 }
             }
 
             // This depends on the Tokens...
-            for rx in io.0.iter() {
+            for (_, rx) in io.0.iter() {
                 rx.discard().await?;
             }
         }

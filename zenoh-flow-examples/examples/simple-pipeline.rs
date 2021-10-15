@@ -22,9 +22,6 @@ use zenoh_flow::async_std::stream::StreamExt;
 use zenoh_flow::async_std::sync::Arc;
 use zenoh_flow::model::link::{LinkFromDescriptor, LinkToDescriptor};
 use zenoh_flow::runtime::RuntimeContext;
-use zenoh_flow::{
-    default_input_rule, default_output_rule, Context, Node, PortId, SerDeData, Sink, Source,
-};
 use zenoh_flow::{model::link::PortDescriptor, zf_data, zf_empty_state};
 use zenoh_flow::{Context, Node, SerDeData, Sink, Source};
 use zenoh_flow::{State, ZFResult};
@@ -114,7 +111,7 @@ async fn main() {
     let ctx = RuntimeContext {
         session,
         hlc,
-        runtime_name: String::from("local").into(),
+        runtime_name: String::from("self").into(),
         runtime_uuid: uuid::Uuid::new_v4(),
     };
 
@@ -194,7 +191,9 @@ async fn main() {
 
     let logger_runner = zf_graph.get_runner(&logger_id).unwrap();
     let m = logger_runner.start();
-    managers.push(m);
+
+    async_std::task::sleep(std::time::Duration::from_secs(5)).await;
+    zf_graph.remove_logger(logger_id, m).await.unwrap();
 
     let ctrlc = CtrlC::new().expect("Unable to create Ctrl-C handler");
     let mut stream = ctrlc.enumerate().take(1);

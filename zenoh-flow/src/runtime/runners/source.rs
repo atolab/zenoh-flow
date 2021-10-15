@@ -11,13 +11,16 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
+#![allow(clippy::type_complexity)]
 
 use crate::async_std::sync::{Arc, RwLock};
 use crate::model::node::SourceRecord;
 use crate::runtime::graph::link::LinkSender;
 use crate::runtime::message::Message;
+use crate::runtime::runners::RunAction;
 use crate::types::ZFResult;
 use crate::utils::hlc::PeriodicHLC;
+use crate::OperatorId;
 use crate::{Context, PortId, Source, State};
 use libloading::Library;
 use std::collections::HashMap;
@@ -40,7 +43,7 @@ pub struct SourceRunner {
     pub record: Arc<SourceRecord>,
     pub hlc: Arc<PeriodicHLC>,
     pub state: Arc<RwLock<Box<dyn State>>>,
-    pub outputs: Arc<RwLock<HashMap<PortId, Vec<LinkSender<Message>>>>>,
+    pub outputs: Arc<RwLock<HashMap<PortId, HashMap<OperatorId, LinkSender<Message>>>>>,
     pub source: Arc<dyn Source>,
     pub lib: Arc<Option<Library>>,
 }
@@ -63,13 +66,36 @@ impl SourceRunner {
         }
     }
 
-    pub async fn add_output(&self, output: LinkSender<Message>) {
+    pub async fn add_output(&self, output: LinkSender<Message>, to_id: OperatorId) {
+        log::trace!("add_output({:?},{:?}", output, to_id);
         let mut outputs = self.outputs.write().await;
         let key = output.id();
-        if let Some(links) = outputs.get_mut(key.as_ref()) {
-            links.push(output);
+        if let Some(links) = outputs.get_mut(&key) {
+            links.insert(to_id, output);
         } else {
-            outputs.insert(key, vec![output]);
+            let mut link = HashMap::new();
+            link.insert(to_id, output);
+            outputs.insert(key, link);
+        }
+    }
+
+    pub async fn remove_output(&self, port_id: PortId, to_id: OperatorId) {
+        log::trace!("remove_output({:?},{:?}", port_id, to_id);
+        let mut outputs = self.outputs.write().await;
+        if let Some(links) = outputs.get_mut(&port_id) {
+            if links.remove(&to_id).is_none() {
+                log::warn!(
+                    "Unable to remove link from port {:?} to node {:?}: to not found",
+                    port_id,
+                    to_id
+                );
+            }
+        } else {
+            log::warn!(
+                "Unable to remove link from port {:?} to node {:?}: port not found",
+                port_id,
+                to_id
+            );
         }
     }
 
@@ -78,7 +104,7 @@ impl SourceRunner {
         self.source.clean(&mut state)
     }
 
-    pub async fn run(&self) -> ZFResult<()> {
+    pub async fn run(&self) -> ZFResult<RunAction> {
         let mut context = Context::default();
 
         loop {
@@ -92,14 +118,17 @@ impl SourceRunner {
             let timestamp = self.hlc.new_timestamp();
 
             // Send to Links
-            log::debug!("Sending on {:?} data: {:?}", id, output);
+            log::trace!("Sending on {:?} data: {:?}", id, output);
 
             if let Some(links) = outputs_links.get(&id) {
                 let zf_message = Arc::new(Message::from_serdedata(output, timestamp));
 
-                for tx in links {
-                    log::debug!("Sending on: {:?}", tx);
-                    tx.send(zf_message.clone()).await?;
+                for (to, tx) in links {
+                    log::trace!("Sending to {:?} on: {:?}", to, tx);
+                    match tx.send(zf_message.clone()).await {
+                        Ok(_) => (),
+                        Err(e) => log::warn!("Error when sending to {:?} on {:?}: {:?}", to, tx, e),
+                    }
                 }
             }
         }

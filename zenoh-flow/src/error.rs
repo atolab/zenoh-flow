@@ -32,6 +32,7 @@ pub enum ZFError {
     Uncompleted(String),
     PortTypeNotMatching((String, String)),
     OperatorNotFound(OperatorId),
+    LinkNotFound(OperatorId, OperatorId),
     PortNotFound((OperatorId, String)),
     RecvError(String),
     SendError(String),
