@@ -14,6 +14,8 @@
 #[macro_use]
 extern crate criterion;
 
+use std::time::Duration;
+
 use criterion::{black_box, Criterion};
 use zenoh_flow::{Data, Message};
 
@@ -33,10 +35,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut size = 8;
 
     while size <= MAX_PAYLOAD {
-        // let msg = ThrData {
-        //     data: (0u64..size).map(|i| (i % 10) as u8).collect::<Vec<u8>>(),
-        // };
-
         let payload_data = (0u64..size).map(|i| (i % 10) as u8).collect::<Vec<u8>>();
 
         let data = Data::from_bytes(payload_data);
@@ -45,7 +43,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let serialized_zf = zf_msg.clone().serialize_bincode().unwrap();
 
         c.bench_function(
-            format!("serialize zenoh-flow message {size}").as_str(),
+            format!("serialize-zenoh-flow-message-{size}").as_str(),
             |b| {
                 b.iter(|| {
                     let _ = bench_serialize(black_box(&zf_msg));
@@ -54,7 +52,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         );
 
         c.bench_function(
-            format!("deserialize zenoh-flow message {size}").as_str(),
+            format!("deserialize-zenoh-flow-message-{size}").as_str(),
             |b| {
                 b.iter(|| {
                     let _ = bench_deserialize(black_box(&serialized_zf));
@@ -66,5 +64,8 @@ fn criterion_benchmark(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, criterion_benchmark);
+criterion_group!(
+    name = benches;
+    config = Criterion::default().measurement_time(Duration::from_secs(60)).sample_size(500usize);
+    targets = criterion_benchmark);
 criterion_main!(benches);

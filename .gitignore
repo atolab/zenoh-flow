@@ -20,3 +20,6 @@
 # Output files
 outfile.png
 output.dot
+
+logs/
+img/
