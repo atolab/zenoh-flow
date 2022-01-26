@@ -48,7 +48,6 @@ zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "mas
 znrpc-macros = { git = "https://github.com/atolab/zenoh-rpc.git", branch = "master" }
 zrpc = { git = "https://github.com/atolab/zenoh-rpc.git", branch = "master" }
 
-
 [dev-dependencies]
 criterion = "0.3.4"
 
@@ -66,4 +65,8 @@ default = ["debug"]
 
 [[bench]]
 name = "serialization_bench"
+harness = false
+
+[[bench]]
+name = "serialization_bench_empty"
 harness = false

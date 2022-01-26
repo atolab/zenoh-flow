@@ -164,7 +164,7 @@ impl OperatorRunner {
         let io = self.io.lock().await;
         let mut state = self.state.lock().await;
 
-        let mut links = Vec::with_capacity(tokens.len());
+        let mut links = Vec::with_capacity(tokens.len()); //TODO: move me!!!
 
         // Only call `recv` on links where the corresponding Token is `Pending`. If a
         // `ReadyToken` has its action set to `Keep` then it will stay as a `ReadyToken` (i.e.

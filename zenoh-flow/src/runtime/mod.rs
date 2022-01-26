@@ -44,6 +44,8 @@ pub mod message;
 pub mod resources;
 pub mod token;
 
+pub mod message_new;
+
 #[derive(Clone)]
 pub struct RuntimeContext {
     pub session: Arc<Session>,
