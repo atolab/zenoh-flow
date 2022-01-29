@@ -59,41 +59,29 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut zbuf: ZBuf = wbuff.into();
 
-    c.bench_function(
-        format!("bincode-serialize-zenoh-flow-message-data").as_str(),
-        |b| {
-            b.iter(|| {
-                let _ = bench_serialize(black_box(&zf_msg));
-            })
-        },
-    );
+    c.bench_function("bincode-serialize-zenoh-flow-message-data", |b| {
+        b.iter(|| {
+            let _ = bench_serialize(black_box(&zf_msg));
+        })
+    });
 
-    c.bench_function(
-        format!("custom-serialize-zenoh-flow-message-data").as_str(),
-        |b| {
-            b.iter(|| {
-                let _ = bench_serialize_custom(black_box(&zf_msg_new), black_box(&mut b_buff));
-            })
-        },
-    );
+    c.bench_function("custom-serialize-zenoh-flow-message-data", |b| {
+        b.iter(|| {
+            let _ = bench_serialize_custom(black_box(&zf_msg_new), black_box(&mut b_buff));
+        })
+    });
 
-    c.bench_function(
-        format!("bincode-deserialize-zenoh-flow-message-data").as_str(),
-        |b| {
-            b.iter(|| {
-                let _ = bench_deserialize(black_box(&serialized_zf));
-            })
-        },
-    );
+    c.bench_function("bincode-deserialize-zenoh-flow-message-data", |b| {
+        b.iter(|| {
+            let _ = bench_deserialize(black_box(&serialized_zf));
+        })
+    });
 
-    c.bench_function(
-        format!("custom-deserialize-zenoh-flow-message-data").as_str(),
-        |b| {
-            b.iter(|| {
-                let _ = bench_deserialize_custom(black_box(&mut zbuf));
-            })
-        },
-    );
+    c.bench_function("custom-deserialize-zenoh-flow-message-data", |b| {
+        b.iter(|| {
+            let _ = bench_deserialize_custom(black_box(&mut zbuf));
+        })
+    });
 }
 
 criterion_group!(

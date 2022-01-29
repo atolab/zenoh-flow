@@ -381,11 +381,11 @@ mod tests {
         let payload_data: Vec<u8> = vec![];
         let ts = hlc.new_timestamp();
         let data_new = NewData::from_bytes(payload_data.clone());
-        let data_msg_new = NewDataMessage::new(data_new, ts.clone(), vec![]);
+        let data_msg_new = NewDataMessage::new(data_new, ts, vec![]);
         let zf_msg_new = ZenohFlowMessage::Data(data_msg_new);
 
         let mut wbuff = WBuf::new(256, false);
-        zf_msg_new.clone().serialize(&mut wbuff);
+        zf_msg_new.serialize(&mut wbuff);
 
         let mut zbuf: ZBuf = wbuff.into();
 
@@ -397,14 +397,14 @@ mod tests {
 
         let r_ts = zbuf
             .read_timestamp()
-            .ok_or(ZFError::InvalidData(String::from("Unable to get ts")))
+            .ok_or_else(|| ZFError::InvalidData(String::from("Unable to get ts")))
             .unwrap();
 
         assert_eq!(r_ts, ts);
 
         let r_payload = Arc::new(
             zbuf.read_bytes_array()
-                .ok_or(ZFError::InvalidData(String::from("Unable to get payload")))
+                .ok_or_else(|| ZFError::InvalidData(String::from("Unable to get payload")))
                 .unwrap(),
         );
 
@@ -414,6 +414,6 @@ mod tests {
 
         let de = deserialize_custom(&mut zbuf).is_ok();
 
-        assert_eq!(true, de);
+        assert!(de);
     }
 }
