@@ -13,13 +13,13 @@
 //
 #[macro_use]
 extern crate criterion;
+use byteorder::WriteBytesExt;
+use criterion::{black_box, Criterion};
 use std::time::Duration;
 use zenoh::net::protocol::io::*;
-
-use criterion::{black_box, Criterion};
 //use zenoh_flow::runtime::message_new::{Data, Message};
 use zenoh_flow::runtime::message_new::{
-    deserialize_custom, Data as NewData, DataMessage as NewDataMessage, ZenohFlowMessage,
+    deserialize_custom_wbuf, Data as NewData, DataMessage as NewDataMessage, ZenohFlowMessage,
 };
 use zenoh_flow::{Data, Message};
 
@@ -29,12 +29,12 @@ fn bench_serialize(message: &Message) {
 
 fn bench_serialize_custom(message: &ZenohFlowMessage, buff: &mut WBuf) {
     buff.clear();
-    let _ = message.serialize(buff);
+    let _ = message.serialize_wbuf(buff);
 }
 
 fn bench_deserialize_custom(buff: &mut ZBuf) {
     buff.reset();
-    let _ = deserialize_custom(buff).unwrap();
+    let _ = deserialize_custom_wbuf(buff).unwrap();
 }
 
 fn bench_deserialize(data: &[u8]) {
@@ -52,6 +52,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let data_new = NewData::from_bytes(payload_data);
     let data_msg_new = NewDataMessage::new(data_new, hlc.new_timestamp(), vec![]);
     let zf_msg_new = ZenohFlowMessage::Data(data_msg_new);
+
     let mut b_buff = WBuf::new(8192, false);
 
     let mut wbuff = WBuf::new(8192, false);
@@ -70,6 +71,12 @@ fn criterion_benchmark(c: &mut Criterion) {
             let _ = bench_serialize_custom(black_box(&zf_msg_new), black_box(&mut b_buff));
         })
     });
+
+    // c.bench_function("custom-vec-serialize-zenoh-flow-message-data", |b| {
+    //     b.iter(|| {
+    //         let _ = bench_serialize_custom(black_box(&zf_msg_new), black_box(&mut b_buff));
+    //     })
+    // });
 
     c.bench_function("bincode-deserialize-zenoh-flow-message-data", |b| {
         b.iter(|| {

@@ -24,6 +24,8 @@ use uuid::Uuid;
 use std::time::Duration;
 
 // ser/de
+use byteorder::{LittleEndian, WriteBytesExt}; //,ReadBytesExt};
+                                              //use std::io::Cursor;
 use zenoh::net::protocol::io::*;
 
 pub type NodeId = u64;
@@ -96,11 +98,25 @@ pub enum ZenohFlowMessage {
 
 impl ZenohFlowMessage {
     #[inline(always)]
-    pub fn serialize(&self, buff: &mut WBuf) -> bool {
+    pub fn serialize_wbuf(&self, buff: &mut WBuf) -> bool {
         match &self {
-            Self::Data(d) => d.serialize_custom(buff),
-            Self::RecordStart(d) => d.serialize_custom(buff),
-            Self::RecordStop(d) => d.serialize_custom(buff),
+            Self::Data(d) => d.serialize_custom_wbuf(buff),
+            _ => panic!("Not yet")
+            // Self::RecordStart(d) => d.serialize_custom_wbuf(buff),
+            // Self::RecordStop(d) => d.serialize_custom_wbuf(buff),
+        }
+    }
+
+    #[inline(always)]
+    pub fn serialize_to_vec<IsWriter>(&self, buff: &mut IsWriter) -> bool
+    where
+        IsWriter: WriteBytesExt,
+    {
+        match &self {
+            Self::Data(d) => d.serialize_custom_writer(buff),
+            _ => panic!("Not yet")
+            // Self::RecordStart(d) => d.serialize_custom_wbuf(buff),
+            // Self::RecordStop(d) => d.serialize_custom_wbuf(buff),
         }
     }
 }
@@ -113,12 +129,12 @@ impl RecordingStop {
     }
 }
 
-impl ZFMessage for RecordingStop {
-    #[inline(always)]
-    fn serialize_custom(&self, buff: &mut WBuf) -> bool {
-        buff.write(RECORD_STOP) && buff.write_timestamp(&self.0)
-    }
-}
+// impl ZFMessage for RecordingStop {
+//     #[inline(always)]
+//     fn serialize_custom_wbuf(&self, buff: &mut WBuf) -> bool {
+//         buff.write(RECORD_STOP) && buff.write_timestamp(&self.0)
+//     }
+// }
 
 #[derive(Clone)]
 pub struct RecordingStart {
@@ -147,17 +163,17 @@ impl RecordingStart {
     }
 }
 
-impl ZFMessage for RecordingStart {
-    #[inline(always)]
-    fn serialize_custom(&self, buff: &mut WBuf) -> bool {
-        buff.write(RECORD_START)
-            && buff.write_timestamp(&self.ts)
-            && buff.write_bytes(self.port_id.to_le_bytes().as_slice())
-            && buff.write_bytes(self.node_id.to_le_bytes().as_slice())
-            && buff.write_bytes(self.flow_id.to_le_bytes().as_slice())
-            && buff.write_bytes_array(self.instance_id.as_bytes())
-    }
-}
+// impl ZFMessage for RecordingStart {
+//     #[inline(always)]
+//     fn serialize_custom_wbuf(&self, buff: &mut WBuf) -> bool {
+//         buff.write(RECORD_START)
+//             && buff.write_timestamp(&self.ts)
+//             && buff.write_bytes(self.port_id.to_le_bytes().as_slice())
+//             && buff.write_bytes(self.node_id.to_le_bytes().as_slice())
+//             && buff.write_bytes(self.flow_id.to_le_bytes().as_slice())
+//             && buff.write_bytes_array(self.instance_id.as_bytes())
+//     }
+// }
 
 // Timestamp is uhlc::HLC::Timestamp (u64, usize, [u8;16])
 // All the Ids are Arc<str>
@@ -242,7 +258,7 @@ impl DataMessage {
 
 impl ZFMessage for DataMessage {
     #[inline(always)]
-    fn serialize_custom(&self, buff: &mut WBuf) -> bool {
+    fn serialize_custom_wbuf(&self, buff: &mut WBuf) -> bool {
         let mut header = DATA;
         if !self.end_to_end_deadlines.is_empty() {
             header |= E_FLAG;
@@ -260,6 +276,35 @@ impl ZFMessage for DataMessage {
             && buff.write_timestamp(&self.timestamp)
             && buff.write_usize_as_zint(data_bytes.len())
             && buff.write_bytes(&data_bytes)
+    }
+
+    #[inline(always)]
+    fn serialize_custom_writer<Writer>(&self, buff: &mut Writer) -> bool
+    where
+        Writer: WriteBytesExt,
+    {
+        let mut header = DATA;
+        if !self.end_to_end_deadlines.is_empty() {
+            header |= E_FLAG;
+        }
+        if !self.missed_end_to_end_deadlines.is_empty() {
+            header |= M_FLAG;
+        }
+        if !self.loop_contexts.is_empty() {
+            header |= L_FLAG;
+        }
+
+        let data_bytes = self.data.try_as_bytes().unwrap();
+        // writer.write_i32::<LittleEndian>(self.identifier).unwrap();
+        buff.write_u8(header).is_ok()
+            && buff
+                .write_u64::<LittleEndian>(self.timestamp.get_time().as_u64())
+                .is_ok()
+            && buff.write_all(self.timestamp.get_id().as_slice()).is_ok()
+            && buff
+                .write_u64::<LittleEndian>(data_bytes.len() as u64)
+                .is_ok()
+            && buff.write_all(&data_bytes).is_ok()
     }
 }
 
@@ -297,6 +342,16 @@ pub struct E2EDeadline {
     pub start: Timestamp,
 }
 
+// impl ZFMessage for E2EDeadline {
+//     fn serialize_custom_wbuf(&self, buff: &mut WBuf) -> bool {
+//         buff.write_bytes(self.duration.as_secs().to_le_bytes().as_slice())
+//             && buff.write_bytes(self.duration.subsec_nanos().to_le_bytes().as_slice())
+//             && self.from.serialize_custom_wbuf(buff)
+//             && self.to.serialize_custom_wbuf(buff)
+//             && buff.write_timestamp(&self.start)
+//     }
+// }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct E2EDeadlineMiss {
     pub duration: Duration,
@@ -305,6 +360,17 @@ pub struct E2EDeadlineMiss {
     pub start: Timestamp,
     pub end: Timestamp,
 }
+
+// impl ZFMessage for E2EDeadlineMiss {
+//     fn serialize_custom_wbuf(&self, buff: &mut WBuf) -> bool {
+//         buff.write_bytes(self.duration.as_secs().to_le_bytes().as_slice())
+//             && buff.write_bytes(self.duration.subsec_nanos().to_le_bytes().as_slice())
+//             && self.from.serialize_custom_wbuf(buff)
+//             && self.to.serialize_custom_wbuf(buff)
+//             && buff.write_timestamp(&self.start)
+//             && buff.write_timestamp(&self.end)
+//     }
+// }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LoopContext {
@@ -315,6 +381,14 @@ pub struct LoopContext {
     pub(crate) timestamp_start_current_iteration: Option<Timestamp>,
     pub(crate) duration_last_iteration: Option<Duration>,
 }
+
+// impl ZFMessage for LoopContext {
+//     fn serialize_custom_wbuf(&self, buff: &mut WBuf) -> bool {
+//         buff.write_bytes(self.ingress.to_le_bytes().as_slice())
+//             && buff.write_bytes(self.egress.to_le_bytes().as_slice())
+//             && buff.write_timestamp(&self.timestamp_start_first_iteration)
+//     }
+// }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum LoopIteration {
@@ -328,17 +402,35 @@ pub struct InputDescriptor {
     pub input: PortId,
 }
 
+// impl ZFMessage for InputDescriptor {
+//     fn serialize_custom_wbuf(&self, buff: &mut WBuf) -> bool {
+//         buff.write_bytes(self.node.to_le_bytes().as_slice())
+//             && buff.write_bytes(self.input.to_le_bytes().as_slice())
+//     }
+// }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OutputDescriptor {
     pub node: NodeId,
     pub output: PortId,
 }
 
+// impl ZFMessage for OutputDescriptor {
+//     fn serialize_custom_wbuf(&self, buff: &mut WBuf) -> bool {
+//         buff.write_bytes(self.node.to_le_bytes().as_slice())
+//             && buff.write_bytes(self.output.to_le_bytes().as_slice())
+//     }
+
+// }
+
 pub trait ZFMessage {
-    fn serialize_custom(&self, buff: &mut WBuf) -> bool;
+    fn serialize_custom_wbuf(&self, buff: &mut WBuf) -> bool;
+    fn serialize_custom_writer<Writer>(&self, buff: &mut Writer) -> bool
+    where
+        Writer: WriteBytesExt;
 }
 
-pub fn deserialize_custom(data: &mut ZBuf) -> ZFResult<ZenohFlowMessage> {
+pub fn deserialize_custom_wbuf(data: &mut ZBuf) -> ZFResult<ZenohFlowMessage> {
     let header = data.read().ok_or(ZFError::DeseralizationError)?;
 
     if header & DATA == DATA {
@@ -370,7 +462,8 @@ pub fn deserialize_custom(data: &mut ZBuf) -> ZFResult<ZenohFlowMessage> {
 #[cfg(test)]
 mod tests {
     use crate::runtime::message_new::{
-        deserialize_custom, Data as NewData, DataMessage as NewDataMessage, ZenohFlowMessage, DATA,
+        deserialize_custom_wbuf, Data as NewData, DataMessage as NewDataMessage, ZenohFlowMessage,
+        DATA,
     };
     use crate::ZFError;
     use async_std::sync::Arc;
@@ -412,7 +505,7 @@ mod tests {
 
         zbuf.reset();
 
-        let de = deserialize_custom(&mut zbuf).is_ok();
+        let de = deserialize_custom_wbuf(&mut zbuf).is_ok();
 
         assert!(de);
     }

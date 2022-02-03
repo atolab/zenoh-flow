@@ -19,10 +19,11 @@ use syn::{parse_macro_input, DeriveInput};
 #[proc_macro_derive(ZFData)]
 pub fn zf_data_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
+    let generics = &ast.generics;
     let ident = &ast.ident;
     let gen = quote! {
 
-        impl zenoh_flow::DowncastAny for #ident {
+        impl#generics zenoh_flow::DowncastAny for #ident#generics {
             fn as_any(&self) -> &dyn std::any::Any {
                 self
             }
@@ -39,9 +40,10 @@ pub fn zf_data_derive(input: TokenStream) -> TokenStream {
 pub fn zf_state_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let ident = &ast.ident;
+    let generics = &ast.generics;
     let gen = quote! {
 
-        impl zenoh_flow::ZFState for #ident {
+        impl#generics zenoh_flow::ZFState for #ident#generics {
             fn as_any(&self) -> &dyn std::any::Any {
                 self
             }
